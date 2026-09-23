@@ -99,36 +99,43 @@ function AdminShell({ children, activeTab, setActiveTab, onSignOut }) {
           </button>
         </div>
       </header>
-      <div className="mx-auto max-w-7xl px-6 py-8 lg:px-12 lg:py-12">
-        <div className="mb-8">
-          <a
-            href={appBaseUrl}
-            className="mb-4 inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.16em] text-[#827d72]"
-          >
-            <ChevronLeft size={14} /> Public site
-          </a>
-          <h1 className="font-serif text-5xl leading-none">
-            Mohar Kalan, clearly served.
-          </h1>
-          <p className="mt-3 text-sm text-[#6c716a]">
-            Check each transfer, keep local causes current, and maintain clear
-            records for families and donors.
-          </p>
-        </div>
-        <div className="mb-8 grid gap-2 rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-2 sm:grid-cols-3">
-          {tabs.map(({ id, label, icon: Icon }) => (
-            <button
-              type="button"
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${activeTab === id ? "bg-[#142b23] text-white shadow-sm" : "text-[#6c716a] hover:bg-[#ebe7dc]"}`}
+      <div className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-8 lg:flex-row lg:gap-10 lg:px-12 lg:py-12">
+        <aside className="lg:w-64 lg:shrink-0">
+          <div className="lg:sticky lg:top-8">
+            <a
+              href={appBaseUrl}
+              className="mb-4 inline-flex items-center gap-1 text-xs font-bold uppercase tracking-[0.16em] text-[#827d72]"
             >
-              <Icon size={17} />
-              {label}
-            </button>
-          ))}
+              <ChevronLeft size={14} /> Public site
+            </a>
+            <nav aria-label="Admin navigation" className="grid gap-2 rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-2 sm:grid-cols-2 lg:grid-cols-1">
+              {tabs.map(({ id, label, icon: Icon }) => (
+                <button
+                  type="button"
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  aria-current={activeTab === id ? "page" : undefined}
+                  className={`flex items-center justify-start gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${activeTab === id ? "bg-[#142b23] text-white shadow-sm" : "text-[#6c716a] hover:bg-[#ebe7dc]"}`}
+                >
+                  <Icon size={17} />
+                  {label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </aside>
+        <div className="min-w-0 flex-1">
+          <div className="mb-8">
+            <h1 className="font-serif text-5xl leading-none">
+              Mohar Kalan, clearly served.
+            </h1>
+            <p className="mt-3 text-sm text-[#6c716a]">
+              Check each transfer, keep local causes current, and maintain clear
+              records for families and donors.
+            </p>
+          </div>
+          {children}
         </div>
-        {children}
       </div>
     </main>
   );
