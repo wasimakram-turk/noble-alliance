@@ -271,10 +271,24 @@ function AdminManagement({ currentUser }) {
       if (form.password.length < 6) {
         throw new Error("Use a password with at least 6 characters.");
       }
-      const result = await createUserWithEmailAndPassword(adminAuth, form.email.trim(), form.password);
+      const email = form.email.trim().toLowerCase();
+      let result;
+      try {
+        result = await createUserWithEmailAndPassword(adminAuth, email, form.password);
+      } catch (authError) {
+        if (authError.code !== "auth/email-already-in-use") throw authError;
+        try {
+          result = await signInWithEmailAndPassword(adminAuth, email, form.password);
+        } catch {
+          throw new Error("This email already has a Firebase account. Use its existing password or choose another email.");
+        }
+      }
+      if (result.user.uid === currentUser.uid) {
+        throw new Error("This is already the signed-in administrator account.");
+      }
       await setDoc(doc(db, "admin_users", result.user.uid), {
-        email: form.email.trim().toLowerCase(),
-        displayName: form.displayName.trim() || form.email.trim(),
+        email,
+        displayName: form.displayName.trim() || email,
         active: true,
         isPrimary: false,
         createdAt: serverTimestamp(),
@@ -1065,17 +1079,33 @@ export default function Admin() {
         }
         if (!cancelled) setAdminProfile(profile);
       } catch {
-        // Keep an existing authenticated admin online during the one-time
-        // registry migration. The deployed rules will protect the data once
-        // the admin_users document has been initialized.
-        if (!cancelled) {
-          setAdminProfile({
-            email: user.email || "",
+        try {
+          await setDoc(doc(db, "admin_users", user.uid), {
+            email: user.email?.toLowerCase() || "",
             displayName: user.email || "Primary administrator",
             active: true,
             isPrimary: true,
-            migrationPending: true,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
           });
+          await setDoc(doc(db, "admin_settings", "main"), {
+            primaryUid: user.uid,
+            createdAt: serverTimestamp(),
+          });
+          if (!cancelled) setAdminProfile({ isPrimary: true, active: true });
+        } catch {
+          // Keep existing authenticated admins online until the updated
+          // Firestore rules are deployed and the one-time registry migration
+          // can complete.
+          if (!cancelled) {
+            setAdminProfile({
+              email: user.email || "",
+              displayName: user.email || "Primary administrator",
+              active: true,
+              isPrimary: true,
+              migrationPending: true,
+            });
+          }
         }
       }
     }
