@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+  function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admin_users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.active == true;
+    }
+
+    match /admin_settings/{document} {
+      allow read: if isAdmin();
+      allow create: if document == 'main'
+        && !exists(/databases/$(database)/documents/admin_settings/main)
+        && isAdmin()
+        && request.resource.data.primaryUid == request.auth.uid
+        && get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.isPrimary == true;
+      allow update, delete: if false;
+    }
+
+    match /admin_users/{userId} {
+      allow read: if isAdmin();
+      allow create: if (
+        isAdmin()
+        && request.resource.data.isPrimary == false
+      ) || (
+        request.auth != null
+        && request.auth.uid == userId
+        && !exists(/databases/$(database)/documents/admin_settings/main)
+        && request.resource.data.isPrimary == true
+      );
+      allow update: if isAdmin()
+        && resource.data.isPrimary == request.resource.data.isPrimary
+        && (resource.data.isPrimary == false || request.resource.data.active == true);
+      allow delete: if isAdmin()
+        && resource.data.isPrimary == false
+        && userId != request.auth.uid;
+    }
+
+    match /causes/{causeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /donation_receipts/{receiptId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /platform_settings/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /contact_messages/{messageId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}
