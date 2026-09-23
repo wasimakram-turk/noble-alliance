@@ -711,7 +711,7 @@ function CauseManager({ causes, onChange }) {
       </div>
       <Notice message={message} />
       <Notice message={error} error />
-      <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
+      <div className="grid gap-8 lg:grid-cols-2">
         <form
           onSubmit={saveCause}
           className="rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-6"
