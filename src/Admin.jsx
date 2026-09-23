@@ -70,10 +70,10 @@ function compressCauseImage(file) {
 }
 
 const tabs = [
-  { id: "queue", label: "Verification queue", icon: ClipboardCheck },
-  { id: "causes", label: "Cause manager", icon: HeartHandshake },
   { id: "general", label: "General settings", icon: Settings2 },
+  { id: "causes", label: "Cause manager", icon: HeartHandshake },
   { id: "settings", label: "Payment settings", icon: WalletCards },
+  { id: "queue", label: "Verification queue", icon: ClipboardCheck },
   { id: "messages", label: "Messages", icon: Inbox },
   { id: "admins", label: "Admin access", icon: ShieldCheck },
 ];
@@ -1078,11 +1078,11 @@ function GeneralSettingsEditor({ onChange }) {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {field("Organization name", "organizationName")}
           {field("Tagline", "organizationTagline")}
+          <div className="sm:col-span-2 lg:col-span-3">{field("Hero description", "organizationDescription")}</div>
           {field("Contact email", "contactEmail", "email")}
           {field("Phone number", "phoneNumber")}
           {field("Volunteer count", "volunteerCount", "number")}
           {field("Projects completed", "projectsCompleted", "number")}
-          <div className="sm:col-span-2 lg:col-span-3">{field("Hero description", "organizationDescription")}</div>
         </div>
         <button type="submit" className="mt-7 flex items-center gap-2 rounded-full bg-[#142b23] px-6 py-3 text-sm font-bold text-white">
           <Save size={16} /> Save general settings
