@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
+  WalletCards,
   X,
 } from "lucide-react";
 import {
@@ -71,7 +72,8 @@ function compressCauseImage(file) {
 const tabs = [
   { id: "queue", label: "Verification queue", icon: ClipboardCheck },
   { id: "causes", label: "Cause manager", icon: HeartHandshake },
-  { id: "settings", label: "Payment settings", icon: Settings2 },
+  { id: "general", label: "General settings", icon: Settings2 },
+  { id: "settings", label: "Payment settings", icon: WalletCards },
   { id: "messages", label: "Messages", icon: Inbox },
   { id: "admins", label: "Admin access", icon: ShieldCheck },
 ];
@@ -115,16 +117,16 @@ function AdminShell({ children, activeTab, setActiveTab, onSignOut }) {
             records for families and donors.
           </p>
         </div>
-        <nav aria-label="Admin navigation" className="mb-8 grid gap-2 rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-2 sm:grid-cols-3">
+        <nav aria-label="Admin navigation" className="mb-8 grid gap-1.5 rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-2 sm:grid-cols-3 lg:grid-cols-6">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               type="button"
               key={id}
               onClick={() => setActiveTab(id)}
               aria-current={activeTab === id ? "page" : undefined}
-              className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${activeTab === id ? "bg-[#142b23] text-white shadow-sm" : "text-[#6c716a] hover:bg-[#ebe7dc]"}`}
+              className={`flex items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-xs font-semibold transition ${activeTab === id ? "bg-[#142b23] text-white shadow-sm" : "text-[#6c716a] hover:bg-[#ebe7dc]"}`}
             >
-              <Icon size={17} />
+              <Icon size={15} />
               {label}
             </button>
           ))}
@@ -974,12 +976,7 @@ function PaymentSettingsEditor({ onChange }) {
         onSubmit={saveSettings}
         className="rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-5 sm:p-6"
       >
-        <div className="mb-6 grid gap-4 border-b border-[#e1dcd0] pb-6 sm:grid-cols-2 lg:grid-cols-3">
-          {field("Organization name", "organizationName")}
-          {field("Tagline", "organizationTagline")}
-          {field("Hero description", "organizationDescription")}
-          {field("Contact email", "contactEmail", "email")}
-          {field("Phone number", "phoneNumber")}
+        <div className="mb-6 max-w-xs border-b border-[#e1dcd0] pb-6">
           {field("Currency", "currency")}
         </div>
         <div className="grid gap-7 lg:grid-cols-3">
@@ -1023,6 +1020,72 @@ function PaymentSettingsEditor({ onChange }) {
           className="mt-7 flex items-center gap-2 rounded-full bg-[#142b23] px-6 py-3 text-sm font-bold text-white"
         >
           <Save size={16} /> Save payment settings
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function GeneralSettingsEditor({ onChange }) {
+  const [form, setForm] = useState({});
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getDoc(doc(db, "platform_settings", "main"))
+      .then((snapshot) => {
+        if (snapshot.exists()) setForm(snapshot.data());
+      })
+      .catch(() => setError("Could not load general settings."));
+  }, []);
+
+  async function saveSettings(event) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    try {
+      await setDoc(doc(db, "platform_settings", "main"), form, { merge: true });
+      setMessage("General settings updated successfully.");
+      onChange();
+    } catch {
+      setError("Could not save general settings. Confirm that you are signed in and that the latest Firestore rules are deployed.");
+    }
+  }
+
+  function field(label, key, type = "text") {
+    return (
+      <label className="block">
+        <span className="field-label">{label}</span>
+        <input
+          type={type}
+          value={form[key] ?? ""}
+          onChange={(event) => setForm({ ...form, [key]: event.target.value })}
+          className="field-input"
+        />
+      </label>
+    );
+  }
+
+  return (
+    <section>
+      <div className="mb-5">
+        <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">Public website details</p>
+        <h2 className="font-serif text-4xl">General settings</h2>
+      </div>
+      <Notice message={message} />
+      <Notice message={error} error />
+      <form onSubmit={saveSettings} className="rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-5 sm:p-6">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {field("Organization name", "organizationName")}
+          {field("Tagline", "organizationTagline")}
+          {field("Contact email", "contactEmail", "email")}
+          {field("Phone number", "phoneNumber")}
+          {field("Volunteer count", "volunteerCount", "number")}
+          {field("Projects completed", "projectsCompleted", "number")}
+          <div className="sm:col-span-2 lg:col-span-3">{field("Hero description", "organizationDescription")}</div>
+        </div>
+        <button type="submit" className="mt-7 flex items-center gap-2 rounded-full bg-[#142b23] px-6 py-3 text-sm font-bold text-white">
+          <Save size={16} /> Save general settings
         </button>
       </form>
     </section>
@@ -1159,6 +1222,11 @@ export default function Admin() {
       )}
       {activeTab === "settings" && (
         <PaymentSettingsEditor
+          onChange={() => setRefreshKey((value) => value + 1)}
+        />
+      )}
+      {activeTab === "general" && (
+        <GeneralSettingsEditor
           onChange={() => setRefreshKey((value) => value + 1)}
         />
       )}
