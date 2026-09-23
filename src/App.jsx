@@ -32,7 +32,8 @@ import humanitarianImage from "./assets/Human.jfif";
 import communityImage from "./assets/releif.jfif";
 
 const appBaseUrl = import.meta.env.BASE_URL;
-const adminPath = `${appBaseUrl}admin`;
+const adminPath = `${appBaseUrl}?admin=1`;
+const legacyAdminPath = `${appBaseUrl}admin`;
 
 const paymentMethods = [
   {
@@ -555,5 +556,7 @@ function PublicHome() {
 
 export default function App() {
   const currentPath = window.location.pathname.replace(/\/$/, "");
-  return currentPath === adminPath.replace(/\/$/, "") ? <Admin /> : <PublicHome />;
+  const isAdminQuery = new URLSearchParams(window.location.search).get("admin") === "1";
+  const isLegacyAdminPath = currentPath === legacyAdminPath.replace(/\/$/, "");
+  return isAdminQuery || isLegacyAdminPath ? <Admin /> : <PublicHome />;
 }

@@ -33,7 +33,6 @@ export const INITIAL_PLATFORM_SETTINGS = {
   contactEmail: "moharkalan@noblealliance.org",
   phoneNumber: "+92 300 1234567",
   currency: "PKR",
-  donationReceiptEnabled: true,
   volunteerCount: 48,
   projectsCompleted: 12,
   jazzCashAccountTitle: "Noble Alliance Mohar Kalan Relief",
