@@ -39,6 +39,7 @@ import {
 } from "firebase/auth";
 
 import { adminAuth, auth, db } from "./firebase";
+import { INITIAL_PLATFORM_SETTINGS } from "./firestore";
 
 const appBaseUrl = import.meta.env.BASE_URL;
 
@@ -1059,7 +1060,7 @@ function PaymentSettingsEditor({ onChange }) {
     getDoc(doc(db, "platform_settings", "main"))
       .then((snapshot) => {
         if (snapshot.exists()) {
-          const settings = snapshot.data();
+          const settings = { ...INITIAL_PLATFORM_SETTINGS, ...snapshot.data() };
           setForm({
             ...settings,
             paymentMethods:
@@ -1301,7 +1302,13 @@ function GeneralSettingsEditor({ onChange }) {
             footerSocialLinks: Array.isArray(settings.footerSocialLinks) ? settings.footerSocialLinks : [],
           });
         } else {
-          setForm({ howItWorksSteps: defaultHowItWorksSteps, transparencyPhotos: defaultTransparencyPhotos, footerNavigation: defaultFooterNavigation, footerSocialLinks: [] });
+          setForm({
+            ...INITIAL_PLATFORM_SETTINGS,
+            howItWorksSteps: defaultHowItWorksSteps,
+            transparencyPhotos: defaultTransparencyPhotos,
+            footerNavigation: defaultFooterNavigation,
+            footerSocialLinks: [],
+          });
         }
       })
       .catch(() => setError("Could not load general settings."));
@@ -1501,7 +1508,7 @@ function SmartphoneIcon() {
 export default function Admin() {
   const [user, setUser] = useState(undefined);
   const [adminProfile, setAdminProfile] = useState(undefined);
-  const [activeTab, setActiveTab] = useState("queue");
+  const [activeTab, setActiveTab] = useState("general");
   const [causes, setCauses] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
 

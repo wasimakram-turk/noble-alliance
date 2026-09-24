@@ -269,17 +269,17 @@ function CauseCard({ cause, currency, onSubmitReceipt }) {
 
   return (
     <article className="interactive-card flex min-h-[20rem] flex-col overflow-hidden rounded-[1.75rem] border border-[#e5e0d5] bg-white/55 transition hover:-translate-y-1 hover:border-[#c9b47f] hover:shadow-[0_18px_45px_rgba(20,43,35,0.07)]">
-      <div className="relative h-36 overflow-hidden bg-[#dce8d8]">
+      <div className="relative h-50 overflow-hidden bg-[#dce8d8]">
         {imageUrl ? <img src={imageUrl} alt="" loading="lazy" decoding="async" width="640" height="360" className="h-full w-full object-cover object-center transition duration-500 hover:scale-105" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_30%_30%,#f0bd4c_0_8%,transparent_9%),linear-gradient(135deg,#dce8d8,#bed2b8)]"><HeartHandshake className="text-[#31573e]" size={38} strokeWidth={1.4} /></div>}
         <span className="absolute right-5 top-5 rounded-full bg-white/85 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.15em] text-[#39704e]">{status}</span>
       </div>
-      <div className="flex flex-1 flex-col p-6 sm:p-7">
-      <div className="mb-8 flex items-start justify-between gap-4">
+      <div className="flex flex-1 flex-col p-6 sm:p-5">
+      <div className="mb-4 flex items-start justify-between gap-4">
         <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#f0bd4c]/25 text-[#9c6812]"><HeartHandshake size={21} /></span>
       </div>
       <h3 className="font-serif text-3xl leading-tight text-[#142b23]">{title}</h3>
       <p className="mt-3 flex-1 text-sm leading-6 text-[#6c716a]">{description}</p>
-      <div className="mt-7">
+      <div className="mt-4">
         <div className="mb-2 flex items-center justify-between text-xs font-semibold text-[#5f685f]"><span>{currency} {formatAmount(progress.raised)} raised</span><span>{progress.percent}%</span></div>
         <div className="h-2 overflow-hidden rounded-full bg-[#e6e4dc]"><div className="h-full rounded-full bg-[#d49c2e] transition-all" style={{ width: `${progress.percent}%` }} /></div>
         <div className="mt-2 flex items-center justify-between text-[11px] text-[#918d83]"><span>Progress</span><span>Goal: {currency} {formatAmount(progress.target)}</span></div>
@@ -421,6 +421,7 @@ function PublicHome() {
   const [copiedValue, setCopiedValue] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsError, setSettingsError] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   const [causesLoading, setCausesLoading] = useState(true);
   const [causesError, setCausesError] = useState(false);
   const [receiptCause, setReceiptCause] = useState(null);
@@ -435,6 +436,8 @@ function PublicHome() {
         }
       } catch {
         setSettingsError(true);
+      } finally {
+        setSettingsLoading(false);
       }
     }
 
@@ -470,6 +473,17 @@ function PublicHome() {
     window.addEventListener("keydown", handleMenuKeyDown);
     return () => window.removeEventListener("keydown", handleMenuKeyDown);
   }, [menuOpen]);
+
+  if (settingsLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f8f6f0] text-[#142b23]">
+        <div className="text-center">
+          <HeartHandshake className="mx-auto mb-4 text-[#b27618]" size={30} strokeWidth={1.5} />
+          <p className="text-sm text-[#6c716a]">Loading Noble Alliance...</p>
+        </div>
+      </main>
+    );
+  }
 
   async function handleCopy(value) {
     try {
