@@ -27,8 +27,8 @@ import {
   getDocs,
   serverTimestamp,
   setDoc,
+  runTransaction,
   updateDoc,
-  writeBatch,
 } from "firebase/firestore";
 import {
   onAuthStateChanged,
@@ -76,6 +76,49 @@ const tabs = [
   { id: "queue", label: "Verification queue", icon: ClipboardCheck },
   { id: "messages", label: "Messages", icon: Inbox },
   { id: "admins", label: "Admin access", icon: ShieldCheck },
+];
+
+const defaultPaymentMethods = [
+  {
+    id: "jazzcash",
+    label: "JazzCash",
+    description: "Open JazzCash, choose Send Money, enter this number, and keep the transaction ID for your receipt.",
+    icon: "phone",
+    enabled: true,
+    order: 1,
+  },
+  {
+    id: "easypaisa",
+    label: "EasyPaisa",
+    description: "Open EasyPaisa, choose Send Money, enter this number, and keep the transaction ID for your receipt.",
+    icon: "phone",
+    enabled: true,
+    order: 2,
+  },
+  {
+    id: "bank",
+    label: "Bank transfer",
+    description: "Use the account title and IBAN for a bank transfer, then keep your transfer reference for verification.",
+    icon: "landmark",
+    enabled: true,
+    order: 3,
+  },
+];
+
+const defaultHowItWorksSteps = [
+  { id: "identify", title: "A neighbour speaks", description: "A teacher, imam, neighbour, or volunteer tells us about a family facing a real need." },
+  { id: "verify", title: "We verify the case", description: "Our volunteers visit personally, listen carefully, and confirm the household situation before aid is approved." },
+  { id: "deliver", title: "Aid reaches the door", description: "We deliver school kits, uniforms, ration bags, or health support and keep a clear record for donors." },
+];
+const defaultTransparencyPhotos = [
+  { id: "photo1", url: "https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&w=1000&q=85", caption: "Learning together", alt: "Children smiling together outdoors" },
+  { id: "photo2", url: "https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?auto=format&fit=crop&w=800&q=85", caption: "People power", alt: "Volunteers joining hands in a circle" },
+  { id: "photo3", url: "https://images.unsplash.com/photo-1594708767771-a7502209ff51?auto=format&fit=crop&w=800&q=85", caption: "Care in action", alt: "A child receiving care and support" },
+];
+const defaultFooterNavigation = [
+  { label: "Our mission", target: "#mission" },
+  { label: "Get involved", target: "#contact" },
+  { label: "Admin", target: "admin" },
 ];
 
 function AdminShell({ children, activeTab, setActiveTab, onSignOut }) {
@@ -520,20 +563,49 @@ function VerificationQueue({ causes, onRefresh }) {
     setMessage("");
     setError("");
     try {
-      const batch = writeBatch(db);
-      batch.update(doc(db, "donation_receipts", receipt.id), {
-        status,
-        reviewedAt: serverTimestamp(),
+      const result = await runTransaction(db, async (transaction) => {
+        const receiptRef = doc(db, "donation_receipts", receipt.id);
+        const receiptSnapshot = await transaction.get(receiptRef);
+        const currentReceipt = receiptSnapshot.data();
+
+        // The status check and financial update must happen atomically.
+        if (currentReceipt?.status === "verified") {
+          return "already-verified";
+        }
+
+        const updates = {
+          status,
+          reviewedAt: serverTimestamp(),
+        };
+
+        if (status === "verified") {
+          const causeRef = doc(db, "causes", currentReceipt?.causeId || receipt.causeId);
+          const causeSnapshot = await transaction.get(causeRef);
+          const causeData = causeSnapshot.data() || {};
+          const approvedReceiptIds = Array.isArray(causeData.approvedReceiptIds)
+            ? causeData.approvedReceiptIds
+            : [];
+
+          if (approvedReceiptIds.includes(receipt.id)) {
+            return "already-verified";
+          }
+
+          const currentRaised = Number(causeData.raisedAmount || 0);
+          transaction.update(causeRef, {
+            raisedAmount: currentRaised + Number(currentReceipt?.amount || receipt.amount || 0),
+            approvedReceiptIds: [...approvedReceiptIds, receipt.id],
+          });
+        }
+
+        transaction.update(receiptRef, updates);
+        return "processed";
       });
-      if (status === "verified") {
-        const causeRef = doc(db, "causes", receipt.causeId);
-        const causeSnapshot = await getDoc(causeRef);
-        const currentRaised = Number(causeSnapshot.data()?.raisedAmount || 0);
-        batch.update(causeRef, {
-          raisedAmount: currentRaised + Number(receipt.amount || 0),
-        });
+
+      if (result === "already-verified") {
+        setMessage("This receipt was already approved. Cause progress was not changed.");
+        return;
       }
-      await batch.commit();
+
       setReceipts((current) =>
         current.filter((item) => item.id !== receipt.id),
       );
@@ -588,6 +660,10 @@ function VerificationQueue({ causes, onRefresh }) {
                   <img
                     src={receipt.screenshotUrl}
                     alt={`Payment receipt for ${cause?.title || "cause"}`}
+                    loading="lazy"
+                    decoding="async"
+                    width="640"
+                    height="480"
                     className="h-full w-full object-cover transition group-hover:scale-105"
                   />
                   <span className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-[#142b23]/85 px-2 py-1 text-[10px] font-bold text-white">
@@ -656,6 +732,9 @@ function CauseManager({ causes, onChange }) {
   const [editingId, setEditingId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  const allowedStatuses = ["Active", "Urgent", "In progress", "Completed"];
 
   function editCause(cause) {
     setEditingId(cause.id);
@@ -665,18 +744,61 @@ function CauseManager({ causes, onChange }) {
   function reset() {
     setEditingId("");
     setForm({ ...blankCause, displayOrder: causes.length + 1 });
+    setFieldErrors({});
   }
 
   async function saveCause(event) {
     event.preventDefault();
     setMessage("");
     setError("");
+    setFieldErrors({});
+
+    const title = form.title.trim();
+    const description = form.description.trim();
+    const targetAmount = Number(form.targetAmount);
+    const raisedAmount = Number(form.raisedAmount);
+    const displayOrder = Number(form.displayOrder);
+    const errors = {};
+
+    if (!title) errors.title = "Title is required.";
+    if (!description) errors.description = "Description is required.";
+    if (!Number.isFinite(targetAmount) || targetAmount < 0) {
+      errors.targetAmount = "Enter a valid non-negative amount.";
+    }
+    if (!Number.isFinite(raisedAmount) || raisedAmount < 0) {
+      errors.raisedAmount = "Enter a valid non-negative amount.";
+    }
+    if (!Number.isFinite(displayOrder) || displayOrder < 1) {
+      errors.displayOrder = "Enter a valid display order of 1 or higher.";
+    }
+    if (!allowedStatuses.includes(form.status)) {
+      errors.status = "Choose a valid cause status.";
+    }
+    if (form.imageUrl && !form.imageUrl.startsWith("data:image/")) {
+      try {
+        const imageUrl = new URL(form.imageUrl);
+        if (!["http:", "https:"].includes(imageUrl.protocol)) {
+          errors.imageUrl = "Use an HTTP or HTTPS image URL.";
+        }
+      } catch {
+        errors.imageUrl = "Enter a valid image URL.";
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError("Please correct the highlighted cause fields.");
+      return;
+    }
+
     try {
       const values = {
         ...form,
-        displayOrder: Number(form.displayOrder),
-        raisedAmount: Number(form.raisedAmount),
-        targetAmount: Number(form.targetAmount),
+        title,
+        description,
+        displayOrder,
+        raisedAmount,
+        targetAmount,
       };
       if (editingId) await updateDoc(doc(db, "causes", editingId), values);
       else await addDoc(collection(db, "causes"), values);
@@ -741,6 +863,7 @@ function CauseManager({ causes, onChange }) {
                 className="field-input"
                 required
               />
+              {fieldErrors.title && <span className="field-error">{fieldErrors.title}</span>}
             </label>
             <label className="block">
               <span className="field-label">Description</span>
@@ -749,10 +872,11 @@ function CauseManager({ causes, onChange }) {
                 onChange={(event) =>
                   setForm({ ...form, description: event.target.value })
                 }
-                rows="3"
+                rows="2"
                 className="field-input resize-none"
                 required
               />
+              {fieldErrors.description && <span className="field-error">{fieldErrors.description}</span>}
             </label>
             <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
               <label className="block">
@@ -766,6 +890,7 @@ function CauseManager({ causes, onChange }) {
                   placeholder="https://example.com/cause.jpg"
                   className="field-input"
                 />
+                {fieldErrors.imageUrl && <span className="field-error">{fieldErrors.imageUrl}</span>}
               </label>
               <label className="flex cursor-pointer items-end">
                 <span className="flex h-[42px] items-center gap-2 rounded-xl border border-dashed border-[#c9c1b2] px-3 text-xs font-semibold text-[#5f685f] hover:border-[#b27618] hover:text-[#142b23]">
@@ -813,6 +938,7 @@ function CauseManager({ causes, onChange }) {
                   <option>In progress</option>
                   <option>Completed</option>
                 </select>
+                {fieldErrors.status && <span className="field-error">{fieldErrors.status}</span>}
               </label>
               <label className="block">
                 <span className="field-label">Display order</span>
@@ -825,6 +951,7 @@ function CauseManager({ causes, onChange }) {
                   }
                   className="field-input"
                 />
+                {fieldErrors.displayOrder && <span className="field-error">{fieldErrors.displayOrder}</span>}
               </label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -839,6 +966,7 @@ function CauseManager({ causes, onChange }) {
                   }
                   className="field-input"
                 />
+                {fieldErrors.raisedAmount && <span className="field-error">{fieldErrors.raisedAmount}</span>}
               </label>
               <label className="block">
                 <span className="field-label">Target (PKR)</span>
@@ -852,6 +980,7 @@ function CauseManager({ causes, onChange }) {
                   className="field-input"
                   required
                 />
+                {fieldErrors.targetAmount && <span className="field-error">{fieldErrors.targetAmount}</span>}
               </label>
             </div>
             <label className="flex items-center gap-3 text-sm text-[#5f685f]">
@@ -924,11 +1053,23 @@ function PaymentSettingsEditor({ onChange }) {
   const [form, setForm] = useState({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     getDoc(doc(db, "platform_settings", "main"))
       .then((snapshot) => {
-        if (snapshot.exists()) setForm(snapshot.data());
+        if (snapshot.exists()) {
+          const settings = snapshot.data();
+          setForm({
+            ...settings,
+            paymentMethods:
+              Array.isArray(settings.paymentMethods) && settings.paymentMethods.length > 0
+                ? settings.paymentMethods
+                : defaultPaymentMethods,
+          });
+        } else {
+          setForm({ paymentMethods: defaultPaymentMethods });
+        }
       })
       .catch(() => setError("Could not load payment settings."));
   }, []);
@@ -937,6 +1078,55 @@ function PaymentSettingsEditor({ onChange }) {
     event.preventDefault();
     setMessage("");
     setError("");
+    setFieldErrors({});
+
+    const requiredFields = [
+      ["currency", "Currency"],
+      ["jazzCashAccountTitle", "JazzCash account title"],
+      ["jazzCashNumber", "JazzCash number"],
+      ["easyPaisaAccountTitle", "EasyPaisa account title"],
+      ["easyPaisaNumber", "EasyPaisa number"],
+      ["bankName", "Bank name"],
+      ["bankAccountTitle", "Account title"],
+      ["bankAccountNumber", "Account number"],
+      ["iban", "IBAN"],
+    ];
+    const errors = {};
+    requiredFields.forEach(([key, label]) => {
+      if (!String(form[key] ?? "").trim()) errors[key] = `${label} is required.`;
+    });
+    ["volunteerCount", "projectsCompleted"].forEach((key) => {
+      const value = Number(form[key]);
+      if (!Number.isFinite(value) || value < 0) {
+        errors[key] = "Enter a valid non-negative number.";
+      }
+    });
+    const paymentMethods = Array.isArray(form.paymentMethods) ? form.paymentMethods : [];
+    if (paymentMethods.length !== defaultPaymentMethods.length) {
+      errors.paymentMethods = "The three standard payment methods must remain configured.";
+    }
+    if (!paymentMethods.some((method) => method.enabled === true)) {
+      errors.paymentMethods = "Keep at least one payment method enabled.";
+    }
+    paymentMethods.forEach((method, index) => {
+      const prefix = `paymentMethods.${index}`;
+      if (!String(method.label ?? "").trim()) {
+        errors[`${prefix}.label`] = "Label is required.";
+      }
+      const order = Number(method.order);
+      if (!Number.isInteger(order) || order < 1 || order > 3) {
+        errors[`${prefix}.order`] = "Order must be 1, 2, or 3.";
+      }
+      if (method.description !== undefined && String(method.description).trim() === "") {
+        errors[`${prefix}.description`] = "Enter a description or leave it empty.";
+      }
+    });
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError("Please correct the highlighted payment fields.");
+      return;
+    }
+
     try {
       await setDoc(doc(db, "platform_settings", "main"), form, { merge: true });
       setMessage("Payment settings updated successfully.");
@@ -958,8 +1148,18 @@ function PaymentSettingsEditor({ onChange }) {
           onChange={(event) => setForm({ ...form, [key]: event.target.value })}
           className="field-input"
         />
+        {fieldErrors[key] && <span className="field-error">{fieldErrors[key]}</span>}
       </label>
     );
+  }
+
+  function updatePaymentMethod(index, changes) {
+    setForm((current) => ({
+      ...current,
+      paymentMethods: current.paymentMethods.map((method, methodIndex) =>
+        methodIndex === index ? { ...method, ...changes } : method,
+      ),
+    }));
   }
 
   return (
@@ -978,6 +1178,59 @@ function PaymentSettingsEditor({ onChange }) {
       >
         <div className="mb-6 max-w-xs border-b border-[#e1dcd0] pb-6">
           {field("Currency", "currency")}
+        </div>
+        <div className="mb-7 border-b border-[#e1dcd0] pb-7">
+          <div className="mb-4">
+            <h3 className="font-serif text-2xl">Payment methods</h3>
+            <p className="mt-1 text-sm text-[#6c716a]">Choose which methods appear publicly and control their order and wording.</p>
+          </div>
+          {form.paymentMethods?.map((method, index) => (
+            <div key={method.id} className="mb-4 rounded-xl border border-[#e1dcd0] bg-white p-4 last:mb-0">
+              <div className="grid gap-4 sm:grid-cols-[1fr_8rem_auto]">
+                <label className="block">
+                  <span className="field-label">Label</span>
+                  <input
+                    value={method.label ?? ""}
+                    onChange={(event) => updatePaymentMethod(index, { label: event.target.value })}
+                    className="field-input"
+                  />
+                  {fieldErrors[`paymentMethods.${index}.label`] && <span className="field-error">{fieldErrors[`paymentMethods.${index}.label`]}</span>}
+                </label>
+                <label className="block">
+                  <span className="field-label">Order</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="3"
+                    value={method.order ?? ""}
+                    onChange={(event) => updatePaymentMethod(index, { order: event.target.value })}
+                    className="field-input"
+                  />
+                  {fieldErrors[`paymentMethods.${index}.order`] && <span className="field-error">{fieldErrors[`paymentMethods.${index}.order`]}</span>}
+                </label>
+                <label className="flex items-end gap-2 pb-2 text-sm font-semibold text-[#5f685f]">
+                  <input
+                    type="checkbox"
+                    checked={method.enabled === true}
+                    onChange={(event) => updatePaymentMethod(index, { enabled: event.target.checked })}
+                    className="h-4 w-4 accent-[#142b23]"
+                  />
+                  Enabled
+                </label>
+              </div>
+              <label className="mt-4 block">
+                <span className="field-label">Description</span>
+                <textarea
+                  value={method.description ?? ""}
+                  onChange={(event) => updatePaymentMethod(index, { description: event.target.value })}
+                  rows="2"
+                  className="field-input resize-none"
+                />
+                {fieldErrors[`paymentMethods.${index}.description`] && <span className="field-error">{fieldErrors[`paymentMethods.${index}.description`]}</span>}
+              </label>
+            </div>
+          ))}
+          {fieldErrors.paymentMethods && <p className="field-error">{fieldErrors.paymentMethods}</p>}
         </div>
         <div className="grid gap-7 lg:grid-cols-3">
           <div>
@@ -1030,11 +1283,26 @@ function GeneralSettingsEditor({ onChange }) {
   const [form, setForm] = useState({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     getDoc(doc(db, "platform_settings", "main"))
       .then((snapshot) => {
-        if (snapshot.exists()) setForm(snapshot.data());
+        if (snapshot.exists()) {
+          const settings = snapshot.data();
+          setForm({
+            ...settings,
+            howItWorksSteps:
+              Array.isArray(settings.howItWorksSteps) && settings.howItWorksSteps.length > 0
+                ? settings.howItWorksSteps
+                : defaultHowItWorksSteps,
+            transparencyPhotos: Array.isArray(settings.transparencyPhotos) && settings.transparencyPhotos.length > 0 ? settings.transparencyPhotos : defaultTransparencyPhotos,
+            footerNavigation: Array.isArray(settings.footerNavigation) && settings.footerNavigation.length > 0 ? settings.footerNavigation : defaultFooterNavigation,
+            footerSocialLinks: Array.isArray(settings.footerSocialLinks) ? settings.footerSocialLinks : [],
+          });
+        } else {
+          setForm({ howItWorksSteps: defaultHowItWorksSteps, transparencyPhotos: defaultTransparencyPhotos, footerNavigation: defaultFooterNavigation, footerSocialLinks: [] });
+        }
       })
       .catch(() => setError("Could not load general settings."));
   }, []);
@@ -1043,6 +1311,68 @@ function GeneralSettingsEditor({ onChange }) {
     event.preventDefault();
     setMessage("");
     setError("");
+    setFieldErrors({});
+
+    const errors = {};
+    ["primaryCtaTarget", "secondaryCtaTarget"].forEach((key) => {
+      const target = String(form[key] ?? "").trim();
+    if (!target) return;
+      const safeHashes = new Set([
+        "#donate",
+        "#causes",
+        "#mission",
+        "#how-it-works",
+        "#impact",
+        "#contact",
+        "#payment",
+        "#rooted",
+        "#transparency",
+      ]);
+      const isHash = safeHashes.has(target);
+      const isRelativePath = target.startsWith("/") && !target.startsWith("//");
+      if (!isHash && !isRelativePath) {
+        errors[key] = "Use a known section link or internal path.";
+      }
+    });
+
+    ["missionHeadline", "missionDescription", "howItWorksHeading"].forEach((key) => {
+      if (form[key] !== undefined && String(form[key]).length > 0 && !String(form[key]).trim()) {
+        errors[key] = "Enter a value or leave this field unchanged.";
+      }
+    });
+    const steps = Array.isArray(form.howItWorksSteps) ? form.howItWorksSteps : [];
+    defaultHowItWorksSteps.forEach((defaultStep, index) => {
+      const step = steps.find((item) => item.id === defaultStep.id) || {};
+      if (!String(step.title ?? "").trim()) errors[`howItWorksSteps.${index}.title`] = "Step title is required.";
+      if (!String(step.description ?? "").trim()) errors[`howItWorksSteps.${index}.description`] = "Step description is required.";
+    });
+    if (form.transparencyHeading !== undefined && String(form.transparencyHeading).length > 0 && !String(form.transparencyHeading).trim()) errors.transparencyHeading = "Enter a heading or leave it empty for the fallback.";
+    (form.transparencyPhotos || []).forEach((photo, index) => {
+      if (!String(photo.url ?? "").trim()) return;
+      try {
+        if (!["http:", "https:"].includes(new URL(photo.url).protocol)) errors[`transparencyPhotos.${index}.url`] = "Use an HTTP or HTTPS image URL.";
+      } catch { errors[`transparencyPhotos.${index}.url`] = "Enter a valid image URL."; }
+    });
+    (form.footerNavigation || []).forEach((link, index) => {
+      const target = String(link.target ?? "").trim();
+      if (target && !target.startsWith("#") && !target.startsWith("/") && target !== "admin") errors[`footerNavigation.${index}.target`] = "Use a section link or internal path.";
+      if (target && !String(link.label ?? "").trim()) errors[`footerNavigation.${index}.label`] = "Label is required when a target is present.";
+    });
+    (form.footerSocialLinks || []).forEach((link, index) => {
+      const url = String(link.url ?? "").trim();
+      if (url && !String(link.label ?? "").trim()) errors[`footerSocialLinks.${index}.label`] = "Label is required when a URL is present.";
+      if (url) {
+        try { if (new URL(url).protocol !== "https:") errors[`footerSocialLinks.${index}.url`] = "Use an HTTPS URL."; }
+        catch { errors[`footerSocialLinks.${index}.url`] = "Enter a valid HTTPS URL."; }
+      }
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError("Please correct the highlighted Hero fields.");
+      return;
+    }
+
     try {
       await setDoc(doc(db, "platform_settings", "main"), form, { merge: true });
       setMessage("General settings updated successfully.");
@@ -1052,7 +1382,7 @@ function GeneralSettingsEditor({ onChange }) {
     }
   }
 
-  function field(label, key, type = "text") {
+  function field(label, key, type = "text", placeholder = "") {
     return (
       <label className="block">
         <span className="field-label">{label}</span>
@@ -1060,10 +1390,26 @@ function GeneralSettingsEditor({ onChange }) {
           type={type}
           value={form[key] ?? ""}
           onChange={(event) => setForm({ ...form, [key]: event.target.value })}
+          placeholder={placeholder}
           className="field-input"
         />
+        {fieldErrors[key] && <span className="field-error">{fieldErrors[key]}</span>}
       </label>
     );
+  }
+
+  function updateStep(stepId, changes) {
+    setForm((current) => ({
+      ...current,
+      howItWorksSteps: defaultHowItWorksSteps.map((step) => {
+        const existing = (current.howItWorksSteps || []).find((item) => item.id === step.id) || step;
+        return step.id === stepId ? { ...existing, ...changes } : existing;
+      }),
+    }));
+  }
+
+  function updateArrayItem(key, index, changes) {
+    setForm((current) => ({ ...current, [key]: current[key].map((item, itemIndex) => itemIndex === index ? { ...item, ...changes } : item) }));
   }
 
   return (
@@ -1078,7 +1424,63 @@ function GeneralSettingsEditor({ onChange }) {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {field("Organization name", "organizationName")}
           {field("Tagline", "organizationTagline")}
-          <div className="sm:col-span-2 lg:col-span-3">{field("Hero description", "organizationDescription")}</div>
+          <div className="sm:col-span-2 lg:col-span-3">{field("Organization description", "organizationDescription")}</div>
+          <div className="sm:col-span-2 lg:col-span-3 border-t border-[#e1dcd0] pt-5">
+            <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">Hero content</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field("Hero headline", "heroHeadline", "text", "Small acts. Lasting good.")}
+              {field("Hero description", "heroDescription", "text", "Short introduction shown below the headline")}
+              {field("Primary CTA label", "primaryCtaLabel", "text", "See where help is needed")}
+              {field("Primary CTA target", "primaryCtaTarget", "text", "#causes")}
+              {field("Secondary CTA label", "secondaryCtaLabel", "text", "How we work")}
+              {field("Secondary CTA target", "secondaryCtaTarget", "text", "#rooted")}
+            </div>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3 border-t border-[#e1dcd0] pt-5">
+            <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">Content sections</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {field("Mission headline", "missionHeadline", "text", "Rooted in Mohar Kalan.")}
+              {field("How it works heading", "howItWorksHeading", "text", "Rooted in Mohar Kalan.")}
+            </div>
+            <label className="mt-4 block">
+              <span className="field-label">Mission description</span>
+              <textarea value={form.missionDescription ?? ""} onChange={(event) => setForm({ ...form, missionDescription: event.target.value })} rows="3" className="field-input resize-none" />
+              {fieldErrors.missionDescription && <span className="field-error">{fieldErrors.missionDescription}</span>}
+            </label>
+            <label className="mt-4 block">
+              <span className="field-label">How it works intro (optional)</span>
+              <textarea value={form.howItWorksIntro ?? ""} onChange={(event) => setForm({ ...form, howItWorksIntro: event.target.value })} rows="2" className="field-input resize-none" />
+            </label>
+            <div className="mt-5 space-y-4">
+              {(form.howItWorksSteps || defaultHowItWorksSteps).map((step, index) => (
+                <div key={step.id} className="rounded-xl border border-[#e1dcd0] bg-white p-4">
+                  <p className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-[#827d72]">Step {index + 1}: {step.id}</p>
+                  <label className="block">
+                    <span className="field-label">Step title</span>
+                    <input value={step.title ?? ""} onChange={(event) => updateStep(step.id, { title: event.target.value })} className="field-input" />
+                    {fieldErrors[`howItWorksSteps.${index}.title`] && <span className="field-error">{fieldErrors[`howItWorksSteps.${index}.title`]}</span>}
+                  </label>
+                  <label className="mt-4 block">
+                    <span className="field-label">Step description</span>
+                    <textarea value={step.description ?? ""} onChange={(event) => updateStep(step.id, { description: event.target.value })} rows="3" className="field-input resize-none" />
+                    {fieldErrors[`howItWorksSteps.${index}.description`] && <span className="field-error">{fieldErrors[`howItWorksSteps.${index}.description`]}</span>}
+                  </label>
+                </div>
+              ))}
+            </div>
+            <div className="mt-8 border-t border-[#e1dcd0] pt-5">
+              <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">Transparency</p>
+              {field("Transparency heading", "transparencyHeading", "text", "See what care can do.")}
+              <label className="mt-4 block"><span className="field-label">Transparency description (optional)</span><textarea value={form.transparencyDescription ?? ""} onChange={(event) => setForm({ ...form, transparencyDescription: event.target.value })} rows="2" className="field-input resize-none" /></label>
+              <div className="mt-4 space-y-4">{(form.transparencyPhotos || defaultTransparencyPhotos).map((photo, index) => <div key={photo.id} className="rounded-xl border border-[#e1dcd0] bg-white p-4"><p className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-[#827d72]">Photo {index + 1}</p>{["url", "caption", "alt"].map((key) => <label key={key} className="mt-3 block first:mt-0"><span className="field-label">{key === "url" ? "Photo URL" : key === "caption" ? "Caption" : "Alt text"}</span><input value={photo[key] ?? ""} onChange={(event) => updateArrayItem("transparencyPhotos", index, { [key]: event.target.value })} className="field-input" />{fieldErrors[`transparencyPhotos.${index}.${key}`] && <span className="field-error">{fieldErrors[`transparencyPhotos.${index}.${key}`]}</span>}</label>)}</div>)}</div>
+            </div>
+            <div className="mt-8 border-t border-[#e1dcd0] pt-5">
+              <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">Footer</p>
+              {field("Copyright text (optional)", "footerCopyright", "text", "© current year and organization name")}
+              <div className="mt-4 space-y-4">{(form.footerNavigation || defaultFooterNavigation).map((link, index) => <div key={index} className="rounded-xl border border-[#e1dcd0] bg-white p-4"><p className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-[#827d72]">Navigation link {index + 1}</p><div className="grid gap-3 sm:grid-cols-2">{["label", "target"].map((key) => <label key={key} className="block"><span className="field-label">{key === "label" ? "Link label" : "Link target"}</span><input value={link[key] ?? ""} onChange={(event) => updateArrayItem("footerNavigation", index, { [key]: event.target.value })} className="field-input" />{fieldErrors[`footerNavigation.${index}.${key}`] && <span className="field-error">{fieldErrors[`footerNavigation.${index}.${key}`]}</span>}</label>)}</div></div>)}</div>
+              <div className="mt-4 space-y-4">{(form.footerSocialLinks || []).map((link, index) => <div key={index} className="rounded-xl border border-[#e1dcd0] bg-white p-4"><p className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-[#827d72]">Social link {index + 1}</p><div className="grid gap-3 sm:grid-cols-2">{["label", "url"].map((key) => <label key={key} className="block"><span className="field-label">{key === "label" ? "Platform label" : "HTTPS URL"}</span><input value={link[key] ?? ""} onChange={(event) => updateArrayItem("footerSocialLinks", index, { [key]: event.target.value })} className="field-input" />{fieldErrors[`footerSocialLinks.${index}.${key}`] && <span className="field-error">{fieldErrors[`footerSocialLinks.${index}.${key}`]}</span>}</label>)}</div></div>)}</div>
+            </div>
+          </div>
           {field("Contact email", "contactEmail", "email")}
           {field("Phone number", "phoneNumber")}
           {field("Volunteer count", "volunteerCount", "number")}

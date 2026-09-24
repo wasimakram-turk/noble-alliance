@@ -1,59 +1,101 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-  function isAdmin() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/admin_users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.active == true;
+    function isAdmin() { return request.auth != null && exists(/databases/$(database)/documents/admin_users/$(request.auth.uid)) && get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.active == true; }
+    function isValidString(value, maxLen) { return value is string && value.size() <= maxLen; }
+    function isValidNumber(value, min, max) { return value is number && value >= min && value <= max; }
+    function isValidEnum(value, allowed) { return value is string && value in allowed; }
+    function isValidUrl(value, maxLen) { return isValidString(value, maxLen) && (value.matches('^https?://.*') || value.matches('^data:image/.*')); }
+    function isOptionalUrl(value, maxLen) { return value == '' || isValidUrl(value, maxLen); }
+
+    function validCauseCreate(data) {
+      return isValidString(data.title, 200) && isValidString(data.description, 2000)
+        && isValidNumber(data.targetAmount, 0.000001, 999999999999999)
+        && isValidNumber(data.raisedAmount, 0, 999999999999999)
+        && isValidEnum(data.status, ['Active', 'Urgent', 'In progress', 'Completed'])
+        && data.displayOrder is int && data.displayOrder >= 1 && data.displayOrder <= 100
+        && isOptionalUrl(data.imageUrl, 500) && data.active is bool
+        && (!data.keys().hasAny(['location']) || isValidString(data.location, 200))
+        && (!data.keys().hasAny(['category']) || isValidEnum(data.category, ['education', 'health', 'community', 'emergency']))
+        && (!data.keys().hasAny(['beneficiaries']) || (data.beneficiaries is int && data.beneficiaries >= 0))
+        && (!data.keys().hasAny(['deadline']) || data.deadline is timestamp || data.deadline is string)
+        && (!data.keys().hasAny(['updates']) || (data.updates is list && data.updates.size() <= 50));
+    }
+    function validChangedCause(data, oldData) {
+      let changed = data.diff(oldData).affectedKeys();
+      return (!changed.hasAny(['title']) || isValidString(data.title, 200))
+        && (!changed.hasAny(['description']) || isValidString(data.description, 2000))
+        && (!changed.hasAny(['targetAmount']) || isValidNumber(data.targetAmount, 0.000001, 999999999999999))
+        && (!changed.hasAny(['raisedAmount']) || isValidNumber(data.raisedAmount, 0, 999999999999999))
+        && (!changed.hasAny(['status']) || isValidEnum(data.status, ['Active', 'Urgent', 'In progress', 'Completed']))
+        && (!changed.hasAny(['displayOrder']) || (data.displayOrder is int && data.displayOrder >= 1 && data.displayOrder <= 100))
+        && (!changed.hasAny(['imageUrl']) || isOptionalUrl(data.imageUrl, 500))
+        && (!changed.hasAny(['active']) || data.active is bool)
+        && (!changed.hasAny(['location']) || isValidString(data.location, 200))
+        && (!changed.hasAny(['category']) || isValidEnum(data.category, ['education', 'health', 'community', 'emergency']))
+        && (!changed.hasAny(['beneficiaries']) || (data.beneficiaries is int && data.beneficiaries >= 0))
+        && (!changed.hasAny(['deadline']) || data.deadline is timestamp || data.deadline is string)
+        && (!changed.hasAny(['updates']) || (data.updates is list && data.updates.size() <= 50));
+    }
+    function validReceipt(data) {
+      return isValidString(data.causeId, 200) && isValidNumber(data.amount, 0.000001, 999999999999999)
+        && isValidString(data.transactionId, 100) && isValidString(data.screenshotUrl, 500000)
+        && (!data.keys().hasAny(['screenshotSource']) || isValidEnum(data.screenshotSource, ['upload', 'url']))
+        && isValidEnum(data.status, ['pending', 'verified', 'rejected']) && data.submittedAt is timestamp;
+    }
+    function validMessage(data) {
+      return isValidString(data.name, 100) && isValidString(data.email, 200) && data.email.matches('.*@.*')
+        && isValidString(data.message, 5000) && (!data.keys().hasAny(['interest']) || isValidString(data.interest, 100))
+        && data.submittedAt is timestamp;
+    }
+    function validChangedReceipt(data, oldData) {
+      let changed = data.diff(oldData).affectedKeys();
+      return (!changed.hasAny(['causeId']) || isValidString(data.causeId, 200))
+        && (!changed.hasAny(['amount']) || isValidNumber(data.amount, 0.000001, 999999999999999))
+        && (!changed.hasAny(['transactionId']) || isValidString(data.transactionId, 100))
+        && (!changed.hasAny(['screenshotUrl']) || isValidString(data.screenshotUrl, 500000))
+        && (!changed.hasAny(['screenshotSource']) || isValidEnum(data.screenshotSource, ['upload', 'url']))
+        && (!changed.hasAny(['status']) || isValidEnum(data.status, ['pending', 'verified', 'rejected']))
+        && (!changed.hasAny(['submittedAt']) || data.submittedAt is timestamp);
+    }
+    function validChangedMessage(data, oldData) {
+      let changed = data.diff(oldData).affectedKeys();
+      return (!changed.hasAny(['name']) || isValidString(data.name, 100))
+        && (!changed.hasAny(['email']) || (isValidString(data.email, 200) && data.email.matches('.*@.*')))
+        && (!changed.hasAny(['message']) || isValidString(data.message, 5000))
+        && (!changed.hasAny(['interest']) || isValidString(data.interest, 100))
+        && (!changed.hasAny(['submittedAt']) || data.submittedAt is timestamp);
     }
 
     match /admin_settings/{document} {
       allow read: if isAdmin();
-      allow create: if document == 'main'
-        && !exists(/databases/$(database)/documents/admin_settings/main)
-        && isAdmin()
-        && request.resource.data.primaryUid == request.auth.uid
-        && get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.isPrimary == true;
+      allow create: if document == 'main' && !exists(/databases/$(database)/documents/admin_settings/main) && isAdmin() && request.resource.data.primaryUid == request.auth.uid && get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.isPrimary == true;
       allow update, delete: if false;
     }
-
     match /admin_users/{userId} {
       allow read: if isAdmin();
-      allow create: if (
-        isAdmin()
-        && request.resource.data.isPrimary == false
-      ) || (
-        request.auth != null
-        && request.auth.uid == userId
-        && !exists(/databases/$(database)/documents/admin_settings/main)
-        && request.resource.data.isPrimary == true
-      );
-      allow update: if isAdmin()
-        && resource.data.isPrimary == request.resource.data.isPrimary
-        && (resource.data.isPrimary == false || request.resource.data.active == true);
-      allow delete: if isAdmin()
-        && resource.data.isPrimary == false
-        && userId != request.auth.uid;
+      allow create: if (isAdmin() && request.resource.data.isPrimary == false && (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role in ['admin', 'primary']) && (!request.resource.data.keys().hasAny(['email']) || isValidString(request.resource.data.email, 320)) && (!request.resource.data.keys().hasAny(['disabled']) || request.resource.data.disabled is bool)) || (request.auth != null && request.auth.uid == userId && !exists(/databases/$(database)/documents/admin_settings/main) && request.resource.data.isPrimary == true);
+      allow update: if isAdmin() && resource.data.isPrimary == request.resource.data.isPrimary && (resource.data.isPrimary == false || request.resource.data.active == true) && (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role in ['admin', 'primary']) && (!request.resource.data.keys().hasAny(['email']) || isValidString(request.resource.data.email, 320)) && (!request.resource.data.keys().hasAny(['disabled']) || request.resource.data.disabled is bool);
+      allow delete: if isAdmin() && resource.data.isPrimary == false && userId != request.auth.uid;
     }
-
     match /causes/{causeId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin() && validCauseCreate(request.resource.data);
+      allow update: if isAdmin() && validChangedCause(request.resource.data, resource.data);
+      allow delete: if isAdmin();
     }
-
     match /donation_receipts/{receiptId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
+      allow create: if validReceipt(request.resource.data);
+      allow read: if isAdmin();
+      allow update: if isAdmin() && validChangedReceipt(request.resource.data, resource.data);
+      allow delete: if isAdmin();
     }
-
-    match /platform_settings/{document} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
+    match /platform_settings/{document} { allow read: if true; allow write: if isAdmin(); }
     match /contact_messages/{messageId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin();
+      allow create: if validMessage(request.resource.data);
+      allow read: if isAdmin();
+      allow update: if isAdmin() && validChangedMessage(request.resource.data, resource.data);
+      allow delete: if isAdmin();
     }
   }
 }

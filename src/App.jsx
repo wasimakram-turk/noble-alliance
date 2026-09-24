@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -24,7 +24,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "./firebase";
-import Admin from "./Admin";
+const Admin = lazy(() => import("./Admin"));
 import Button from "./components/Button";
 import CopyButton from "./components/CopyButton";
 import educationImage from "./assets/Education.jfif";
@@ -35,14 +35,17 @@ const appBaseUrl = import.meta.env.BASE_URL;
 const adminPath = `${appBaseUrl}?admin=1`;
 const legacyAdminPath = `${appBaseUrl}admin`;
 
-const paymentMethods = [
+const fallbackPaymentMethods = [
   {
     id: "jazzcash",
-    name: "JazzCash",
-    icon: WalletCards,
+    label: "JazzCash",
+    description: "Open JazzCash, choose Send Money, enter this number, and keep the transaction ID for your receipt.",
+    icon: "phone",
+    enabled: true,
+    order: 1,
+    iconComponent: WalletCards,
     mark: "JC",
     color: "bg-[#e8f5ed] text-[#177245]",
-    guidance: "Open JazzCash, choose Send Money, enter this number, and keep the transaction ID for your receipt.",
     fields: [
       ["Account title", ["jazzCashAccountTitle", "jazzcashAccountTitle"]],
       ["Mobile number", ["jazzCashNumber", "jazzcashNumber"]],
@@ -50,11 +53,14 @@ const paymentMethods = [
   },
   {
     id: "easypaisa",
-    name: "EasyPaisa",
-    icon: WalletCards,
+    label: "EasyPaisa",
+    description: "Open EasyPaisa, choose Send Money, enter this number, and keep the transaction ID for your receipt.",
+    icon: "phone",
+    enabled: true,
+    order: 2,
+    iconComponent: WalletCards,
     mark: "EP",
     color: "bg-[#fff4d8] text-[#a86c00]",
-    guidance: "Open EasyPaisa, choose Send Money, enter this number, and keep the transaction ID for your receipt.",
     fields: [
       ["Account title", ["easyPaisaAccountTitle", "easypaisaAccountTitle"]],
       ["Mobile number", ["easyPaisaNumber", "easypaisaNumber"]],
@@ -62,11 +68,14 @@ const paymentMethods = [
   },
   {
     id: "bank",
-    name: "Bank transfer",
-    icon: Landmark,
+    label: "Bank transfer",
+    description: "Use the account title and IBAN for a bank transfer, then keep your transfer reference for verification.",
+    icon: "landmark",
+    enabled: true,
+    order: 3,
+    iconComponent: Landmark,
     mark: "BK",
     color: "bg-[#e9eef9] text-[#274b87]",
-    guidance: "Use the account title and IBAN for a bank transfer, then keep your transfer reference for verification.",
     fields: [
       ["Bank", ["bankName"]],
       ["Account title", ["bankAccountTitle", "accountTitle"]],
@@ -76,6 +85,32 @@ const paymentMethods = [
   },
 ];
 
+const paymentIconMap = {
+  phone: WalletCards,
+  landmark: Landmark,
+};
+
+function getPaymentMethods(settings) {
+  const configured = Array.isArray(settings?.paymentMethods) && settings.paymentMethods.length > 0
+    ? settings.paymentMethods
+    : fallbackPaymentMethods;
+
+  return configured
+    .map((config) => {
+      const fallback = fallbackPaymentMethods.find((method) => method.id === config.id);
+      if (!fallback) return null;
+      return {
+        ...fallback,
+        ...config,
+        label: String(config.label || fallback.label).trim() || fallback.label,
+        description: String(config.description || fallback.description).trim() || fallback.description,
+        icon: paymentIconMap[config.icon] || fallback.iconComponent,
+      };
+    })
+    .filter((method) => method && method.enabled === true)
+    .sort((first, second) => Number(first.order) - Number(second.order));
+}
+
 function getPaymentValue(settings, keys) {
   const key = keys.find((candidate) => settings?.[candidate] !== undefined && settings?.[candidate] !== null);
   return key ? String(settings[key]) : "Not configured yet";
@@ -84,6 +119,25 @@ function getPaymentValue(settings, keys) {
 function getCauseValue(cause, keys, fallback = 0) {
   const key = keys.find((candidate) => cause?.[candidate] !== undefined);
   return key ? cause[key] : fallback;
+}
+
+const safeHeroTargets = new Set([
+  "#donate",
+  "#causes",
+  "#mission",
+  "#how-it-works",
+  "#impact",
+  "#contact",
+  "#payment",
+  "#rooted",
+  "#transparency",
+]);
+
+function getSafeHeroTarget(value, fallback) {
+  const target = String(value || "").trim();
+  if (safeHeroTargets.has(target)) return target;
+  if (target.startsWith("/") && !target.startsWith("//")) return target;
+  return fallback;
 }
 
 function formatAmount(amount) {
@@ -130,25 +184,40 @@ function compressReceiptImage(file) {
   });
 }
 
-const proofPhotos = [
+const fallbackTransparencyPhotos = [
   {
+    id: "photo1",
     src: "https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&w=1000&q=85",
     alt: "Children smiling together outdoors",
     label: "Learning together",
     className: "md:col-span-2 md:row-span-2",
   },
   {
+    id: "photo2",
     src: "https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?auto=format&fit=crop&w=800&q=85",
     alt: "Volunteers joining hands in a circle",
     label: "People power",
     className: "",
   },
   {
+    id: "photo3",
     src: "https://images.unsplash.com/photo-1594708767771-a7502209ff51?auto=format&fit=crop&w=800&q=85",
     alt: "A child receiving care and support",
     label: "Care in action",
     className: "",
   },
+];
+
+const fallbackFooterNavigation = [
+  { label: "Our mission", target: "#mission" },
+  { label: "Get involved", target: "#contact" },
+  { label: "Admin", target: "admin" },
+];
+
+const fallbackHowItWorksSteps = [
+  { id: "identify", title: "A neighbour speaks", description: "A teacher, imam, neighbour, or volunteer tells us about a family facing a real need." },
+  { id: "verify", title: "We verify the case", description: "Our volunteers visit personally, listen carefully, and confirm the household situation before aid is approved." },
+  { id: "deliver", title: "Aid reaches the door", description: "We deliver school kits, uniforms, ration bags, or health support and keep a clear record for donors." },
 ];
 
 function PaymentCard({ method, settings, copiedValue, onCopy }) {
@@ -161,7 +230,7 @@ function PaymentCard({ method, settings, copiedValue, onCopy }) {
           <Icon size={21} strokeWidth={1.8} />
           <span className="absolute -bottom-1 -right-1 rounded-md bg-[#142b23] px-1 text-[8px] font-black leading-4 tracking-tight text-white">{method.mark}</span>
         </div>
-        <h3 className="font-serif text-2xl text-[#142b23]">{method.name}</h3>
+        <h3 className="font-serif text-2xl text-[#142b23]">{method.label}</h3>
       </div>
       <div className="space-y-4 p-5">
         {method.fields.map(([label, keys]) => {
@@ -185,7 +254,7 @@ function PaymentCard({ method, settings, copiedValue, onCopy }) {
             </div>
           );
         })}
-        <p className="border-t border-[#e5e0d5] pt-4 text-xs leading-5 text-[#5f685f]">{method.guidance}</p>
+        <p className="border-t border-[#e5e0d5] pt-4 text-xs leading-5 text-[#5f685f]">{method.description}</p>
       </div>
     </article>
   );
@@ -201,7 +270,7 @@ function CauseCard({ cause, currency, onSubmitReceipt }) {
   return (
     <article className="interactive-card flex min-h-[20rem] flex-col overflow-hidden rounded-[1.75rem] border border-[#e5e0d5] bg-white/55 transition hover:-translate-y-1 hover:border-[#c9b47f] hover:shadow-[0_18px_45px_rgba(20,43,35,0.07)]">
       <div className="relative h-36 overflow-hidden bg-[#dce8d8]">
-        {imageUrl ? <img src={imageUrl} alt="" className="h-full w-full object-cover transition duration-500 hover:scale-105" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_30%_30%,#f0bd4c_0_8%,transparent_9%),linear-gradient(135deg,#dce8d8,#bed2b8)]"><HeartHandshake className="text-[#31573e]" size={38} strokeWidth={1.4} /></div>}
+        {imageUrl ? <img src={imageUrl} alt="" loading="lazy" decoding="async" width="640" height="360" className="h-full w-full object-cover object-center transition duration-500 hover:scale-105" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_30%_30%,#f0bd4c_0_8%,transparent_9%),linear-gradient(135deg,#dce8d8,#bed2b8)]"><HeartHandshake className="text-[#31573e]" size={38} strokeWidth={1.4} /></div>}
         <span className="absolute right-5 top-5 rounded-full bg-white/85 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.15em] text-[#39704e]">{status}</span>
       </div>
       <div className="flex flex-1 flex-col p-6 sm:p-7">
@@ -421,8 +490,15 @@ function PublicHome() {
   const currency = getPaymentValue(settings, ["currency"]);
   const organizationName = getPaymentValue(settings, ["organizationName"]);
   const tagline = getPaymentValue(settings, ["organizationTagline"]);
-  const organizationDescription = getPaymentValue(settings, ["organizationDescription"]);
+  const organizationDescription = String(settings?.organizationDescription || "We are a grassroots team based in Mohar Kalan working hand-in-hand with rural families. 100% of your donation reaches the ground directly through verified, transparent local distribution.").trim();
   const contactEmail = getPaymentValue(settings, ["contactEmail"]);
+  const heroHeadline = String(settings?.heroHeadline || "").trim() || "Small acts.\nLasting good.";
+  const heroDescription = String(settings?.heroDescription || "").trim() || organizationDescription;
+  const primaryCtaLabel = String(settings?.primaryCtaLabel || "").trim() || "See where help is needed";
+  const primaryCtaTarget = getSafeHeroTarget(settings?.primaryCtaTarget, "#causes");
+  const secondaryCtaLabel = String(settings?.secondaryCtaLabel || "").trim() || "How we work";
+  const secondaryCtaTarget = getSafeHeroTarget(settings?.secondaryCtaTarget, "#rooted");
+  const configuredPaymentMethods = getPaymentMethods(settings);
   const totalRaised = causes.reduce((total, cause) => total + progressFor(cause).raised, 0);
   const volunteerCount = getCauseValue(settings, ["volunteerCount", "volunteers", "activeVolunteers"], "-");
   const projectCount = getCauseValue(settings, ["projectsCompleted", "completedProjects"], "-");
@@ -430,6 +506,40 @@ function PublicHome() {
   const featuredCauseTitle = featuredCause?.title || featuredCause?.name || "Help should reach the doorstep.";
   const featuredCauseDescription = featuredCause?.description || "Local needs, reviewed and shared clearly.";
   const featuredCauseStatus = featuredCause?.status || "Local support";
+  const missionHeadline = String(settings?.missionHeadline || "").trim() || "Rooted in Mohar Kalan.";
+  const missionDescription = String(settings?.missionDescription || "").trim() || "Noble Alliance began with neighbours helping neighbours. Our volunteers know the lanes, families, and local pressures across Mohar Kalan and surrounding villages.";
+  const howItWorksHeading = String(settings?.howItWorksHeading || "").trim() || "Rooted in Mohar Kalan.";
+  const howItWorksIntro = String(settings?.howItWorksIntro || "").trim();
+  const howItWorksSteps = fallbackHowItWorksSteps.map((fallback) => {
+    const configured = Array.isArray(settings?.howItWorksSteps)
+      ? settings.howItWorksSteps.find((step) => step.id === fallback.id)
+      : null;
+    return {
+      ...fallback,
+      title: String(configured?.title || "").trim() || fallback.title,
+      description: String(configured?.description || "").trim() || fallback.description,
+    };
+  });
+  const transparencyHeading = String(settings?.transparencyHeading || "").trim() || "See what care can do.";
+  const transparencyDescription = String(settings?.transparencyDescription || "").trim() || "We share the work, the numbers, and the people behind every contribution. Progress is something we build in the open.";
+  const transparencyPhotos = fallbackTransparencyPhotos.map((fallback) => {
+    const configured = Array.isArray(settings?.transparencyPhotos)
+      ? settings.transparencyPhotos.find((photo) => photo.id === fallback.id)
+      : null;
+    return {
+      ...fallback,
+      src: String(configured?.url || "").trim() || fallback.src,
+      label: String(configured?.caption || "").trim() || fallback.label,
+      alt: String(configured?.alt || "").trim() || fallback.alt,
+    };
+  });
+  const footerNavigation = Array.isArray(settings?.footerNavigation) && settings.footerNavigation.length > 0
+    ? settings.footerNavigation.filter((link) => String(link.label || "").trim() && String(link.target || "").trim())
+    : fallbackFooterNavigation;
+  const footerSocialLinks = Array.isArray(settings?.footerSocialLinks)
+    ? settings.footerSocialLinks.filter((link) => String(link.label || "").trim() && String(link.url || "").trim())
+    : [];
+  const footerCopyright = String(settings?.footerCopyright || "").trim() || `© ${new Date().getFullYear()} ${organizationName}. All rights reserved.`;
 
   return (
     <main className="min-h-screen bg-[#f8f6f0] text-[#142b23]">
@@ -442,12 +552,12 @@ function PublicHome() {
             <span className="font-serif text-xl font-semibold tracking-tight">{organizationName}</span>
           </a>
           <nav id="primary-navigation" aria-label="Primary navigation" className={`${menuOpen ? "absolute left-0 right-0 top-full flex border-b border-[#e5e0d5] bg-[#f8f6f0] px-6 py-5" : "hidden"} flex-col gap-5 text-sm text-[#5f685f] md:static md:flex md:flex-row md:items-center md:border-0 md:bg-transparent md:p-0`}>
-            <a href="#mission" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">About / Mission</a>
-            <a href="#rooted" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">How it works</a>
-            <a href="#causes" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">Projects / Causes</a>
-            <a href="#transparency" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">Impact</a>
+            <a href="#mission" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">Our Mission</a>
+            <a href="#rooted" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">How It Works</a>
+            <a href="#causes" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">Our Work</a>
+            <a href="#transparency" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">Our Impact</a>
             <a href="#contact" onClick={() => setMenuOpen(false)} className="transition hover:text-[#142b23]">Contact</a>
-            <a href="#payment" onClick={() => setMenuOpen(false)} className="inline-flex items-center gap-2 rounded-full bg-[#142b23] px-5 py-2.5 font-semibold text-white transition hover:bg-[#25483a]">Donate <ArrowRight size={15} /></a>
+            <a href="#payment" onClick={() => setMenuOpen(false)} className="inline-flex items-center gap-2 rounded-full bg-[#142b23] px-5 py-2.5 font-semibold text-white transition hover:bg-[#25483a]">Give Support <ArrowRight size={15} /></a>
           </nav>
           <button type="button" aria-label={menuOpen ? "Close primary navigation" : "Open primary navigation"} aria-expanded={menuOpen} aria-controls="primary-navigation" onClick={() => setMenuOpen(!menuOpen)} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d9d4c9] md:hidden">
             {menuOpen ? <X size={19} /> : <Menu size={19} />}
@@ -458,11 +568,11 @@ function PublicHome() {
       <section id="top" className="mx-auto grid max-w-7xl gap-12 px-6 pb-24 pt-20 lg:grid-cols-[1.15fr_0.85fr] lg:items-end lg:px-12 lg:pb-32 lg:pt-28">
         <div className="animate-[fadeUp_700ms_ease-out_both]">
           <p className="mb-7 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]"><span className="h-px w-8 bg-[#b27618]" /> {organizationName} · Mohar Kalan, Abbottabad</p>
-          <h1 className="max-w-3xl font-serif text-5xl leading-[0.96] tracking-[-0.04em] text-[#142b23] sm:text-7xl lg:text-[6.7rem]">Small acts.<br />Lasting good.</h1>
-          <p className="mt-8 max-w-lg text-lg leading-8 text-[#5f685f]">{organizationDescription}</p>
+          <h1 className="max-w-3xl whitespace-pre-line font-serif text-5xl leading-[0.96] tracking-[-0.04em] text-[#142b23] sm:text-7xl lg:text-[6.7rem]">{heroHeadline}</h1>
+          <p className="mt-8 max-w-lg text-lg leading-8 text-[#5f685f]">{heroDescription}</p>
           <div className="mt-9 flex flex-wrap items-center gap-3">
-            <Button as="a" href="#causes" variant="amber" size="lg" className="gap-3">See where help is needed <ArrowRight size={17} /></Button>
-            <a href="#rooted" className="inline-flex items-center rounded-full border border-[#142b23] px-5 py-3.5 text-sm font-bold text-[#142b23] transition hover:bg-[#142b23] hover:text-white">How we work</a>
+            <Button as="a" href={primaryCtaTarget} variant="amber" size="lg" className="gap-3">{primaryCtaLabel} <ArrowRight size={17} /></Button>
+            <a href={secondaryCtaTarget} className="inline-flex items-center rounded-full border border-[#142b23] px-5 py-3.5 text-sm font-bold text-[#142b23] transition hover:bg-[#142b23] hover:text-white">{secondaryCtaLabel}</a>
           </div>
         </div>
         <div className="relative mx-auto w-full max-w-md animate-[fadeUp_700ms_200ms_ease-out_both] lg:mb-2">
@@ -474,7 +584,7 @@ function PublicHome() {
               <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#527156]">Current community need</p>
               <p className="max-w-[18rem] font-serif text-4xl leading-tight text-[#1d4933]">{featuredCauseTitle}</p>
               <p className="mt-5 max-w-sm text-sm leading-6 text-[#31573e]">{featuredCauseDescription}</p>
-              <a href="#causes" className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-[#1d4933] underline decoration-[#8da889] underline-offset-4">See active causes <ArrowRight size={15} /></a>
+              <a href={primaryCtaTarget} className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-[#1d4933] underline decoration-[#8da889] underline-offset-4">{primaryCtaLabel} <ArrowRight size={15} /></a>
               <div className="mt-10 flex items-center justify-between border-t border-[#a9c0a4] pt-4 text-xs font-semibold uppercase tracking-[0.16em] text-[#527156]"><span>Local needs</span><span>Direct care</span></div>
             </div>
           </div>
@@ -492,21 +602,21 @@ function PublicHome() {
       <section id="mission" className="reveal-section border-y border-[#e5e0d5] bg-[#142b23] text-[#f8f6f0]">
         <div className="mx-auto grid max-w-7xl gap-8 px-6 py-16 lg:grid-cols-[0.75fr_1.25fr] lg:px-12 lg:py-20">
           <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f0bd4c]">Our mission</p>
-          <div><h2 className="max-w-3xl font-serif text-4xl leading-tight sm:text-5xl">Rooted in Mohar Kalan.</h2><p className="mt-6 max-w-xl leading-7 text-[#b9c7ba]">Noble Alliance began with neighbours helping neighbours. Our volunteers know the lanes, families, and local pressures across Mohar Kalan and surrounding villages.</p></div>
+          <div><h2 className="max-w-3xl font-serif text-4xl leading-tight sm:text-5xl">{missionHeadline}</h2><p className="mt-6 max-w-xl leading-7 text-[#b9c7ba]">{missionDescription}</p></div>
         </div>
       </section>
 
       <section id="rooted" className="reveal-section mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
         <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
-          <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">How local trust works</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">Rooted in Mohar Kalan.</h2></div>
-          <div className="grid gap-5 sm:grid-cols-3"><div className="rounded-2xl border border-[#e5e0d5] bg-white/55 p-5"><span className="font-serif text-3xl text-[#b27618]">01</span><h3 className="mt-5 font-serif text-2xl">A neighbour speaks</h3><p className="mt-3 text-sm leading-6 text-[#6c716a]">A teacher, imam, neighbour, or volunteer tells us about a family facing a real need.</p></div><div className="rounded-2xl border border-[#e5e0d5] bg-white/55 p-5"><span className="font-serif text-3xl text-[#b27618]">02</span><h3 className="mt-5 font-serif text-2xl">We verify the case</h3><p className="mt-3 text-sm leading-6 text-[#6c716a]">Our volunteers visit personally, listen carefully, and confirm the household situation before aid is approved.</p></div><div className="rounded-2xl border border-[#e5e0d5] bg-white/55 p-5"><span className="font-serif text-3xl text-[#b27618]">03</span><h3 className="mt-5 font-serif text-2xl">Aid reaches the door</h3><p className="mt-3 text-sm leading-6 text-[#6c716a]">We deliver school kits, uniforms, ration bags, or health support and keep a clear record for donors.</p></div></div>
+          <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">How local trust works</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">{howItWorksHeading}</h2>{howItWorksIntro && <p className="mt-5 max-w-xl text-sm leading-6 text-[#6c716a]">{howItWorksIntro}</p>}</div>
+          <div className="grid gap-5 sm:grid-cols-3">{howItWorksSteps.map((step, index) => <div key={step.id} className="rounded-2xl border border-[#e5e0d5] bg-white/55 p-5"><span className="font-serif text-3xl text-[#b27618]">{String(index + 1).padStart(2, "0")}</span><h3 className="mt-5 font-serif text-2xl">{step.title}</h3><p className="mt-3 text-sm leading-6 text-[#6c716a]">{step.description}</p></div>)}</div>
         </div>
       </section>
 
       <section id="transparency" className="reveal-section mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
-        <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Transparency & past work</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">See what care can do.</h2></div><p className="max-w-sm text-sm leading-6 text-[#6c716a]">We share the work, the numbers, and the people behind every contribution. Progress is something we build in the open.</p></div>
+        <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Transparency & past work</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">{transparencyHeading}</h2></div><p className="max-w-sm text-sm leading-6 text-[#6c716a]">{transparencyDescription}</p></div>
         <div className="grid gap-4 md:grid-cols-4 md:grid-rows-2">
-          {proofPhotos.map((photo) => <figure key={photo.src} className={`group relative min-h-56 overflow-hidden rounded-[1.5rem] ${photo.className}`}><img src={photo.src} alt={photo.alt} loading="lazy" className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#142b23]/75 to-transparent px-5 pb-5 pt-16"><figcaption className="text-sm font-semibold text-white">{photo.label}</figcaption></div></figure>)}
+          {transparencyPhotos.map((photo) => <figure key={photo.id} className={`group relative min-h-56 overflow-hidden rounded-[1.5rem] ${photo.className}`}><img src={photo.src} alt={photo.alt} loading="lazy" decoding="async" width="800" height="600" className="absolute inset-0 h-full w-full object-cover object-center transition duration-700 group-hover:scale-105" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#142b23]/75 to-transparent px-5 pb-5 pt-16"><figcaption className="text-sm font-semibold text-white">{photo.label}</figcaption></div></figure>)}
           <div className="flex flex-col justify-between rounded-[1.5rem] bg-[#f0bd4c] p-6 md:col-span-2"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#6f5114]">Impact to date</p><div className="mt-10 grid grid-cols-3 gap-4"><div><p className="font-serif text-3xl text-[#142b23]">{formatAmount(totalRaised)}</p><p className="mt-1 text-xs text-[#6f5114]">{currency} raised</p></div><div><p className="font-serif text-3xl text-[#142b23]">{projectCount}</p><p className="mt-1 text-xs text-[#6f5114]">Projects</p></div><div><p className="font-serif text-3xl text-[#142b23]">{volunteerCount}</p><p className="mt-1 text-xs text-[#6f5114]">Volunteers</p></div></div></div>
         </div>
       </section>
@@ -518,7 +628,7 @@ function PublicHome() {
         </div>
         {settingsError && <p className="mb-8 rounded-2xl bg-[#fff0e8] px-5 py-4 text-sm text-[#9d4f35]">Payment details are temporarily unavailable. Please check back shortly.</p>}
         <div className="grid gap-10 md:grid-cols-3 md:gap-8">
-          {paymentMethods.map((method) => <PaymentCard key={method.id} method={method} settings={settings} copiedValue={copiedValue} onCopy={handleCopy} />)}
+          {configuredPaymentMethods.map((method) => <PaymentCard key={method.id} method={method} settings={settings} copiedValue={copiedValue} onCopy={handleCopy} />)}
         </div>
         <p className="mt-12 text-center text-xs text-[#89857b]">Every transfer is checked against a local distribution record.</p>
       </section>
@@ -536,15 +646,14 @@ function PublicHome() {
           <div className="flex flex-col justify-between gap-7 lg:items-end">
             <p className="max-w-xs text-sm leading-6 text-[#b9c7ba] lg:text-right">Every contribution helps turn a local need into practical, visible support.</p>
             <div className="flex flex-wrap gap-3 text-sm font-semibold">
-              <a href="#mission" className="rounded-full border border-[#527156] px-4 py-2.5 text-[#f8f6f0] transition hover:border-[#f0bd4c] hover:text-[#f0bd4c]">Our mission</a>
-              <a href="#contact" className="rounded-full border border-[#527156] px-4 py-2.5 text-[#f8f6f0] transition hover:border-[#f0bd4c] hover:text-[#f0bd4c]">Get involved</a>
-              <a href={adminPath} className="rounded-full bg-[#f0bd4c] px-4 py-2.5 text-[#142b23] transition hover:bg-[#e5aa2f]">Admin</a>
+              {footerNavigation.map((link, index) => <a key={`${link.label}-${index}`} href={link.target === "admin" ? adminPath : link.target} className={`${link.target === "admin" ? "rounded-full bg-[#f0bd4c] text-[#142b23] hover:bg-[#e5aa2f]" : "rounded-full border border-[#527156] text-[#f8f6f0] hover:border-[#f0bd4c] hover:text-[#f0bd4c]"} px-4 py-2.5 transition`}>{link.label}</a>)}
             </div>
+            {footerSocialLinks.length > 0 && <div className="mt-4 flex flex-wrap gap-4 text-sm"><span className="text-[#b9c7ba]">Connect</span>{footerSocialLinks.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="text-[#f0bd4c] hover:text-white">{link.label}</a>)}</div>}
           </div>
         </div>
         <div className="border-t border-[#31573e]">
           <div className="mx-auto flex max-w-7xl justify-center px-6 py-5 text-center text-xs text-[#b9c7ba] lg:px-12">
-            <span>© {new Date().getFullYear()} {organizationName}. All rights reserved.</span>
+            <span>{footerCopyright}</span>
           </div>
         </div>
       </footer>
@@ -558,5 +667,5 @@ export default function App() {
   const currentPath = window.location.pathname.replace(/\/$/, "");
   const isAdminQuery = new URLSearchParams(window.location.search).get("admin") === "1";
   const isLegacyAdminPath = currentPath === legacyAdminPath.replace(/\/$/, "");
-  return isAdminQuery || isLegacyAdminPath ? <Admin /> : <PublicHome />;
+  return isAdminQuery || isLegacyAdminPath ? <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-[#142b23] text-white">Loading admin...</main>}><Admin /></Suspense> : <PublicHome />;
 }

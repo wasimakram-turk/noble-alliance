@@ -67,6 +67,14 @@ a:hover {
 		border-color: #b27618;
 	}
 
+	.field-error {
+		display: block;
+		margin-top: 0.375rem;
+		font-size: 0.75rem;
+		line-height: 1.25rem;
+		color: #9d4f35;
+	}
+
 	.icon-button {
 		display: flex;
 		height: 2.25rem;
