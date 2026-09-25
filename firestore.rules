@@ -38,10 +38,11 @@ service cloud.firestore {
         && (!changed.hasAny(['updates']) || (data.updates is list && data.updates.size() <= 50));
     }
     function validReceipt(data) {
-      return isValidString(data.causeId, 200) && isValidNumber(data.amount, 0.000001, 999999999999999)
+      return isValidString(data.donorName, 100) && data.donorName.matches('.*\\S.*')
+        && isValidString(data.causeId, 200) && isValidNumber(data.amount, 0.000001, 999999999999999)
         && isValidString(data.transactionId, 100) && isValidString(data.screenshotUrl, 500000)
         && (!data.keys().hasAny(['screenshotSource']) || isValidEnum(data.screenshotSource, ['file', 'upload', 'url']))
-        && isValidEnum(data.status, ['pending', 'verified', 'rejected']) && data.submittedAt is timestamp;
+        && data.status == 'pending' && data.submittedAt is timestamp;
     }
     function validMessage(data) {
       return isValidString(data.name, 100) && isValidString(data.email, 200) && data.email.matches('.*@.*')
@@ -50,7 +51,8 @@ service cloud.firestore {
     }
     function validChangedReceipt(data, oldData) {
       let changed = data.diff(oldData).affectedKeys();
-      return (!changed.hasAny(['causeId']) || isValidString(data.causeId, 200))
+      return (!changed.hasAny(['donorName']) || (isValidString(data.donorName, 100) && data.donorName.matches('.*\\S.*')))
+        && (!changed.hasAny(['causeId']) || isValidString(data.causeId, 200))
         && (!changed.hasAny(['amount']) || isValidNumber(data.amount, 0.000001, 999999999999999))
         && (!changed.hasAny(['transactionId']) || isValidString(data.transactionId, 100))
         && (!changed.hasAny(['screenshotUrl']) || isValidString(data.screenshotUrl, 500000))

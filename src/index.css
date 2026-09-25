@@ -139,3 +139,9 @@ a:hover {
 	border-color: #c9b47f;
 	box-shadow: 0 12px 30px rgb(20 43 35 / 7%);
 }
+
+.donor-summary button > span:first-child > span {
+	display: block;
+	margin-left: 0;
+	margin-top: 0.25rem;
+}

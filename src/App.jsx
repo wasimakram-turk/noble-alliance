@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import {
   ArrowRight,
   Check,
-  FileImage,
   HeartHandshake,
   Landmark,
   Mail,
@@ -292,22 +291,31 @@ function CauseCard({ cause, currency, onSubmitReceipt }) {
 
 function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
   const [causeId, setCauseId] = useState(selectedCause?.id || "");
+  const [donorName, setDonorName] = useState("");
   const [transactionId, setTransactionId] = useState("");
   const [amount, setAmount] = useState("");
   const [screenshot, setScreenshot] = useState(null);
-  const [imageUrl, setImageUrl] = useState("");
-  const [imageSource, setImageSource] = useState("file");
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (status !== "success") return undefined;
+    const timer = window.setTimeout(onClose, 4000);
+    return () => window.clearTimeout(timer);
+  }, [status, onClose]);
+
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!causeId || !transactionId.trim() || !amount || (imageSource === "file" && !screenshot) || (imageSource === "url" && !imageUrl.trim())) {
-      setError("Please complete every field and provide a payment screenshot or image URL.");
+    if (!donorName.trim() || !causeId || !transactionId.trim() || !amount || !screenshot) {
+      setError("Please complete every field and provide a payment screenshot.");
+      return;
+    }
+    if (donorName.trim().length > 100) {
+      setError("Sender name must be 100 characters or fewer.");
       return;
     }
 
-    if (imageSource === "file" && (!screenshot.type.startsWith("image/") || screenshot.size > 5 * 1024 * 1024)) {
+    if (!screenshot.type.startsWith("image/") || screenshot.size > 5 * 1024 * 1024) {
       setError("Please choose an image smaller than 5 MB.");
       return;
     }
@@ -315,18 +323,17 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
     setStatus("submitting");
     setError("");
     try {
-      const screenshotUrl = imageSource === "file"
-        ? await compressReceiptImage(screenshot)
-        : imageUrl.trim();
+      const screenshotUrl = await compressReceiptImage(screenshot);
       if (screenshotUrl.length > 900000) {
         throw new Error("Receipt image is too large after compression.");
       }
       await addDoc(collection(db, "donation_receipts"), {
         causeId,
+        donorName: donorName.trim(),
         amount: Number(amount),
         transactionId: transactionId.trim(),
         screenshotUrl,
-        screenshotSource: imageSource,
+        screenshotSource: "file",
         status: "pending",
         submittedAt: serverTimestamp(),
       });
@@ -348,12 +355,13 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
           <div className="rounded-2xl bg-[#e8f5ed] p-6 text-center"><span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#39704e] text-white"><Check size={24} /></span><h3 className="mt-4 font-serif text-2xl">Your proof is with us</h3><p className="mt-2 text-sm leading-6 text-[#5f685f]">We will check the transfer and match it to the Mohar Kalan case you selected.</p><button type="button" onClick={onClose} className="mt-6 rounded-full bg-[#142b23] px-5 py-3 text-sm font-bold text-white">Close</button></div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
-            <label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Choose a cause</span><select value={causeId} onChange={(event) => setCauseId(event.target.value)} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm text-[#313d36] outline-none focus:border-[#b27618]" required><option value="">Select an active cause</option>{causes.map((cause) => <option key={cause.id} value={cause.id}>{cause.title || cause.name}</option>)}</select></label>
-            <div className="grid gap-5 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Transaction ID</span><input value={transactionId} onChange={(event) => setTransactionId(event.target.value)} placeholder="Enter transaction ID" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Amount ({currency})</span><input type="number" min="1" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Enter amount" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label></div>
-            <div><div className="mb-2 flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Payment proof</span><div className="flex gap-1 rounded-full bg-[#ebe7dc] p-1 text-xs"><button type="button" onClick={() => setImageSource("file")} className={`rounded-full px-3 py-1.5 font-semibold ${imageSource === "file" ? "bg-white text-[#142b23] shadow-sm" : "text-[#827d72]"}`}>Upload image</button><button type="button" onClick={() => setImageSource("url")} className={`rounded-full px-3 py-1.5 font-semibold ${imageSource === "url" ? "bg-white text-[#142b23] shadow-sm" : "text-[#827d72]"}`}>Use image URL</button></div></div>{imageSource === "file" ? <label className="block"><span className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#c9c1b2] bg-white px-4 py-4 text-sm text-[#6c716a] transition hover:border-[#b27618]"><Upload size={18} className="text-[#b27618]" /><span className="min-w-0 flex-1 truncate">{screenshot ? screenshot.name : "Choose an image, up to 5 MB"}</span><input type="file" accept="image/*" onChange={(event) => setScreenshot(event.target.files?.[0] || null)} className="sr-only" /></span></label> : <input type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="https://example.com/receipt.jpg" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" />}</div>
+            <p className="mb-1 text-xs text-[#827d72]">* Required fields</p>
+            <label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Sender Name *</span><input value={donorName} onChange={(event) => setDonorName(event.target.value)} placeholder="Enter your full name" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label>
+            <label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Project *</span><select value={causeId} onChange={(event) => setCauseId(event.target.value)} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm text-[#313d36] outline-none focus:border-[#b27618]" required><option value="">Select an active cause</option>{causes.map((cause) => <option key={cause.id} value={cause.id}>{cause.title || cause.name}</option>)}</select></label>
+            <div className="grid gap-5 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Transaction ID *</span><input value={transactionId} onChange={(event) => setTransactionId(event.target.value)} placeholder="Enter transaction ID" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Amount ({currency}) *</span><input type="number" min="1" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Enter amount" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label></div>
+            <div><div className="mb-2 flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Payment proof *</span></div><label className="block"><span className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#c9c1b2] bg-white px-4 py-4 text-sm text-[#6c716a] transition hover:border-[#b27618]"><Upload size={18} className="text-[#b27618]" /><span className="min-w-0 flex-1 truncate">{screenshot ? screenshot.name : "Choose an image, up to 5 MB"}</span><input type="file" accept="image/*" onChange={(event) => setScreenshot(event.target.files?.[0] || null)} className="sr-only" /></span></label></div>
             {error && <p className="rounded-xl bg-[#fff0e8] px-4 py-3 text-sm text-[#9d4f35]">{error}</p>}
             <Button type="submit" disabled={status === "submitting"} className="w-full">{status === "submitting" ? "Submitting receipt..." : "Submit receipt"}<ArrowRight size={16} /></Button>
-            <p className="flex items-center justify-center gap-2 text-center text-xs text-[#918d83]"><FileImage size={14} /> Images are compressed in your browser and saved with the receipt.</p>
           </form>
         )}
       </div>

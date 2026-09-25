@@ -8,7 +8,10 @@ import {
   HeartHandshake,
   Landmark,
   LogOut,
+  Minus,
   Pencil,
+  Plus,
+  RefreshCw,
   ReceiptText,
   Save,
   Settings2,
@@ -25,6 +28,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   serverTimestamp,
   setDoc,
   runTransaction,
@@ -122,7 +126,7 @@ const defaultFooterNavigation = [
   { label: "Admin", target: "admin" },
 ];
 
-function AdminShell({ children, activeTab, setActiveTab, onSignOut }) {
+function AdminShell({ children, activeTab, setActiveTab, onSignOut, notificationCounts }) {
   return (
     <main className="min-h-screen bg-[#f4f1e9] text-[#142b23]">
       <header className="border-b border-[#ddd8cc] bg-[#142b23] text-white">
@@ -172,6 +176,7 @@ function AdminShell({ children, activeTab, setActiveTab, onSignOut }) {
             >
               <Icon size={15} />
               {label}
+              {notificationCounts[id] > 0 && <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#c77b65] px-1 text-[10px] font-bold text-white">{notificationCounts[id] > 99 ? "99+" : notificationCounts[id]}</span>}
             </button>
           ))}
         </nav>
@@ -452,6 +457,16 @@ function ContactMessages() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  async function toggleMessageStatus(message) {
+    const nextStatus = message.status === "new" ? "read" : "new";
+    try {
+      await updateDoc(doc(db, "contact_messages", message.id), { status: nextStatus });
+      setMessages((current) => current.map((item) => item.id === message.id ? { ...item, status: nextStatus } : item));
+    } catch {
+      setError("Could not update the message status. Please try again.");
+    }
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       getDocs(collection(db, "contact_messages"))
@@ -521,6 +536,9 @@ function ContactMessages() {
               <p className="mt-3 text-xs text-[#827d72]">
                 Interest: {message.interest || "General inquiry"}
               </p>
+              <button type="button" onClick={() => toggleMessageStatus(message)} className="mt-4 rounded-full border border-[#d9d4c9] px-3 py-2 text-xs font-semibold text-[#4f5c53] transition hover:border-[#b27618]">
+                {message.status === "new" ? "Mark as read" : "Mark as unread"}
+              </button>
             </article>
           ))}
         </div>
@@ -529,20 +547,32 @@ function ContactMessages() {
   );
 }
 
-function VerificationQueue({ causes, onRefresh }) {
+function VerificationQueue({ causes, onRefresh, currentUser }) {
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [previewReceipt, setPreviewReceipt] = useState(null);
+  const [zoom, setZoom] = useState(1);
+  const [selectedDonor, setSelectedDonor] = useState("");
+  const [adminNames, setAdminNames] = useState({});
 
   async function loadReceipts() {
     setLoading(true);
     try {
-      const snapshot = await getDocs(collection(db, "donation_receipts"));
+      const [snapshot, adminSnapshot] = await Promise.all([
+        getDocs(collection(db, "donation_receipts")),
+        getDocs(collection(db, "admin_users")),
+      ]);
+      setAdminNames(Object.fromEntries(adminSnapshot.docs.map((admin) => {
+        const data = admin.data();
+        return [admin.id, data.displayName || data.email || admin.id];
+      })));
       setReceipts(
-        snapshot.docs
-          .map((receipt) => ({ id: receipt.id, ...receipt.data() }))
-          .filter((receipt) => receipt.status === "pending"),
+        snapshot.docs.map((receipt) => ({ id: receipt.id, ...receipt.data() })),
       );
     } catch {
       setError(
@@ -559,6 +589,15 @@ function VerificationQueue({ causes, onRefresh }) {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!previewReceipt) return undefined;
+    function handleKeyDown(event) {
+      if (event.key === "Escape") setPreviewReceipt(null);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewReceipt]);
 
   async function reviewReceipt(receipt, status) {
     setMessage("");
@@ -577,6 +616,7 @@ function VerificationQueue({ causes, onRefresh }) {
         const updates = {
           status,
           reviewedAt: serverTimestamp(),
+          ...(currentUser?.uid ? { reviewedBy: currentUser.uid } : {}),
         };
 
         if (status === "verified") {
@@ -607,9 +647,7 @@ function VerificationQueue({ causes, onRefresh }) {
         return;
       }
 
-      setReceipts((current) =>
-        current.filter((item) => item.id !== receipt.id),
-      );
+      await loadReceipts();
       setMessage(
         status === "verified"
           ? "Receipt approved and cause progress updated."
@@ -621,6 +659,35 @@ function VerificationQueue({ causes, onRefresh }) {
     }
   }
 
+  const timestampValue = (value) => {
+    const date = value?.toDate ? value.toDate() : new Date(value);
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  };
+  const filteredReceipts = receipts
+    .filter((receipt) => filter === "all" || receipt.status === filter)
+    .sort((first, second) => timestampValue(second.submittedAt) - timestampValue(first.submittedAt));
+  const totalPages = Math.max(1, Math.ceil(filteredReceipts.length / pageSize));
+  const visibleReceipts = filteredReceipts.slice((page - 1) * pageSize, page * pageSize);
+  const donorSummary = receipts
+    .filter((receipt) => receipt.status === "verified" && receipt.donorName?.trim())
+    .reduce((summary, receipt) => {
+      const name = receipt.donorName.trim();
+      const normalizedName = name.toLowerCase();
+      const entry = summary[normalizedName] || { donorName: name, count: 0, total: 0, latest: null, receipts: [] };
+      entry.count += 1;
+      entry.total += Number(receipt.amount || 0);
+      entry.receipts.push(receipt);
+      if (!entry.latest || timestampValue(receipt.submittedAt) > timestampValue(entry.latest.submittedAt)) entry.latest = receipt;
+      summary[normalizedName] = entry;
+      return summary;
+    }, {});
+
+  function formatDate(value) {
+    if (!value) return "Not available";
+    const date = value.toDate ? value.toDate() : new Date(value);
+    return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleDateString("en-PK", { dateStyle: "medium" });
+  }
+
   return (
     <section>
       <div className="mb-6 flex items-end justify-between gap-4">
@@ -628,34 +695,41 @@ function VerificationQueue({ causes, onRefresh }) {
           <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">
             Donations
           </p>
-          <h2 className="font-serif text-4xl">Verification queue</h2>
+          <h2 className="font-serif text-4xl">Receipt history</h2>
         </div>
-        <span className="rounded-full bg-[#f0bd4c] px-3 py-1 text-xs font-bold text-[#142b23]">
-          {receipts.length} pending
-        </span>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => { setMessage(""); setError(""); void loadReceipts(); }} disabled={loading} className="inline-flex items-center gap-2 rounded-full border border-[#d9d4c9] bg-white px-3 py-2 text-xs font-bold text-[#142b23] transition hover:border-[#b27618] disabled:cursor-not-allowed disabled:opacity-60" aria-label="Refresh receipt history">
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Refresh
+          </button>
+          <span className="rounded-full bg-[#f0bd4c] px-3 py-1 text-xs font-bold text-[#142b23]">{receipts.filter((receipt) => receipt.status === "pending").length} pending</span>
+        </div>
       </div>
       <Notice message={message} />
       <Notice message={error} error />
+      <div className="mb-6 flex flex-wrap gap-2">
+        {["all", "pending", "verified", "rejected"].map((value) => <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-full px-4 py-2 text-xs font-bold capitalize ${filter === value ? "bg-[#142b23] text-white" : "border border-[#d9d4c9] text-[#5f685f]"}`}>{value}</button>)}
+      </div>
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+      <div>
       {loading ? (
         <div className="h-48 animate-pulse rounded-2xl bg-[#e8e4da]" />
-      ) : receipts.length === 0 ? (
+      ) : visibleReceipts.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[#c9c1b2] bg-[#f8f6f0] px-6 py-14 text-center text-sm text-[#827d72]">
           <ClipboardCheck className="mx-auto mb-3 text-[#b27618]" size={26} />
-          No pending receipts.
+          No {filter === "all" ? "receipt" : filter} receipts.
         </div>
       ) : (
         <div className="space-y-5">
-          {receipts.map((receipt) => {
+          {visibleReceipts.map((receipt) => {
             const cause = causes.find((item) => item.id === receipt.causeId);
             return (
               <article
                 key={receipt.id}
                 className="grid gap-6 rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-5 md:grid-cols-[12rem_1fr_auto] md:items-center"
               >
-                <a
-                  href={receipt.screenshotUrl}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => { setPreviewReceipt(receipt); setZoom(1); }}
                   className="group relative block aspect-[4/3] overflow-hidden rounded-xl bg-[#e8e4da]"
                 >
                   <img
@@ -670,7 +744,7 @@ function VerificationQueue({ causes, onRefresh }) {
                   <span className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full bg-[#142b23]/85 px-2 py-1 text-[10px] font-bold text-white">
                     <ExternalLink size={11} /> Preview
                   </span>
-                </a>
+                </button>
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">
                     {cause?.title || receipt.causeId}
@@ -688,13 +762,17 @@ function VerificationQueue({ causes, onRefresh }) {
                     <div>
                       <dt className="text-xs text-[#aaa398]">Donor</dt>
                       <dd className="font-medium text-[#313d36]">
-                        {receipt.donorName || receipt.donorEmail || "Anonymous"}
+                        {receipt.donorName || receipt.donorEmail || "Not provided"}
                       </dd>
                     </div>
+                    <div><dt className="text-xs text-[#aaa398]">Submitted</dt><dd className="font-medium text-[#313d36]">{formatDate(receipt.submittedAt)}</dd></div>
+                    <div><dt className="text-xs text-[#aaa398]">Status</dt><dd className={`font-bold capitalize ${receipt.status === "verified" ? "text-[#39704e]" : receipt.status === "rejected" ? "text-[#9d4f35]" : "text-[#a86c00]"}`}>{receipt.status || "pending"}</dd></div>
+                    {receipt.reviewedAt && <div><dt className="text-xs text-[#aaa398]">Reviewed</dt><dd className="font-medium text-[#313d36]">{formatDate(receipt.reviewedAt)}</dd></div>}
+                    {receipt.reviewedBy && <div><dt className="text-xs text-[#aaa398]">Reviewed by</dt><dd className="break-all font-medium text-[#313d36]">{adminNames[receipt.reviewedBy] || "Administrator"}</dd></div>}
                   </dl>
                 </div>
                 <div className="flex gap-2 md:flex-col">
-                  <button
+                  {receipt.status === "pending" && <><button
                     type="button"
                     onClick={() => reviewReceipt(receipt, "verified")}
                     className="flex items-center justify-center gap-2 rounded-full bg-[#39704e] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#285b3c]"
@@ -707,13 +785,23 @@ function VerificationQueue({ causes, onRefresh }) {
                     className="flex items-center justify-center gap-2 rounded-full border border-[#c77b65] px-4 py-2.5 text-sm font-bold text-[#9d4f35] transition hover:bg-[#fff0e8]"
                   >
                     <X size={15} /> Reject
-                  </button>
+                  </button></>}
+                  {receipt.status === "verified" && <span className="rounded-full bg-[#e8f5ed] px-4 py-2.5 text-center text-sm font-bold text-[#39704e]">Verified</span>}
+                  {receipt.status === "rejected" && <span className="rounded-full bg-[#fff0e8] px-4 py-2.5 text-center text-sm font-bold text-[#9d4f35]">Rejected</span>}
                 </div>
               </article>
             );
           })}
         </div>
       )}
+      {!loading && filteredReceipts.length > 0 && <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#ddd8cc] bg-[#f8f6f0] px-4 py-3"><span className="text-xs text-[#827d72]">Showing {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, filteredReceipts.length)} of {filteredReceipts.length}</span><div className="flex items-center gap-2"><button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1} className="rounded-full border border-[#d9d4c9] px-3 py-1.5 text-xs font-semibold text-[#4f5c53] disabled:cursor-not-allowed disabled:opacity-40">Previous</button><span className="text-xs font-bold text-[#142b23]">Page {page} of {totalPages}</span><button type="button" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={page === totalPages} className="rounded-full border border-[#d9d4c9] px-3 py-1.5 text-xs font-semibold text-[#4f5c53] disabled:cursor-not-allowed disabled:opacity-40">Next</button></div></div>}
+      </div>
+      <aside className="donor-summary h-fit rounded-2xl border border-[#ddd8cc] bg-[#f8f6f0] p-5 lg:sticky lg:top-6">
+        <div className="mb-5 border-b border-[#e1dcd0] pb-4"><div className="flex items-center justify-between gap-3"><div><p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">Verified giving</p><h3 className="font-serif text-2xl text-[#142b23]">Donor summary</h3></div><span className="rounded-full bg-[#e8f5ed] px-2.5 py-1 text-[11px] font-bold text-[#39704e]">{Object.keys(donorSummary).length}</span></div><p className="mt-2 text-xs leading-5 text-[#827d72]">Verified donations grouped by sender name.</p></div>
+        <div className="space-y-3">{Object.values(donorSummary).map((donor) => <div key={donor.donorName} className="rounded-xl border border-[#e1dcd0] bg-white p-4"><button type="button" onClick={() => setSelectedDonor(selectedDonor === donor.donorName ? "" : donor.donorName)} className="flex w-full items-center justify-between gap-4 text-left"><span><strong className="text-[#142b23]">{donor.donorName}</strong><span className="ml-3 text-xs text-[#827d72]">{donor.count} verified donation{donor.count === 1 ? "" : "s"}</span></span><span className="font-semibold text-[#39704e]">PKR {donor.total.toLocaleString("en-PK")}</span></button>{selectedDonor === donor.donorName && <div className="mt-3 space-y-2 border-t border-[#e1dcd0] pt-3 text-xs text-[#6c716a]">{donor.receipts.map((receipt) => <p key={receipt.id}>{formatDate(receipt.submittedAt)} · {receipt.transactionId} · PKR {Number(receipt.amount || 0).toLocaleString("en-PK")}</p>)}</div>}</div>)}{Object.keys(donorSummary).length === 0 && <p className="text-sm text-[#827d72]">No verified donor totals yet.</p>}</div>
+      </aside>
+      </div>
+      {previewReceipt && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#142b23]/80 p-4" role="dialog" aria-modal="true" onClick={() => setPreviewReceipt(null)}><div className="relative flex max-h-[92vh] max-w-5xl flex-col items-center gap-4 rounded-2xl bg-[#f8f6f0] p-4" onClick={(event) => event.stopPropagation()}><button type="button" onClick={() => setPreviewReceipt(null)} aria-label="Close preview" className="absolute right-3 top-3 z-20 rounded-full bg-[#142b23] p-2 text-white shadow-lg"><X size={16} /></button><img src={previewReceipt.screenshotUrl} alt="Payment receipt preview" className="max-h-[76vh] max-w-full object-contain" style={{ transform: `scale(${zoom})` }} /><div className="flex items-center gap-2"><button type="button" onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))} className="icon-button" aria-label="Zoom out"><Minus size={15} /></button><span className="min-w-14 text-center text-sm font-semibold">{Math.round(zoom * 100)}%</span><button type="button" onClick={() => setZoom((value) => Math.min(3, value + 0.25))} className="icon-button" aria-label="Zoom in"><Plus size={15} /></button><button type="button" onClick={() => setZoom(1)} className="rounded-full border border-[#d9d4c9] px-3 py-2 text-xs font-semibold">Reset</button></div></div></div>}
     </section>
   );
 }
@@ -1511,6 +1599,7 @@ export default function Admin() {
   const [activeTab, setActiveTab] = useState("general");
   const [causes, setCauses] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [notificationCounts, setNotificationCounts] = useState({ queue: 0, messages: 0 });
 
   async function loadCauses() {
     const snapshot = await getDocs(collection(db, "causes"));
@@ -1520,6 +1609,19 @@ export default function Admin() {
   }
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
+  useEffect(() => {
+    if (!user) return undefined;
+    const unsubscribeReceipts = onSnapshot(collection(db, "donation_receipts"), (snapshot) => {
+      setNotificationCounts((current) => ({ ...current, queue: snapshot.docs.filter((item) => item.data().status === "pending").length }));
+    });
+    const unsubscribeMessages = onSnapshot(collection(db, "contact_messages"), (snapshot) => {
+      setNotificationCounts((current) => ({ ...current, messages: snapshot.docs.filter((item) => (item.data().status || "new") === "new").length }));
+    });
+    return () => {
+      unsubscribeReceipts();
+      unsubscribeMessages();
+    };
+  }, [user]);
   useEffect(() => {
     if (!user) {
       return undefined;
@@ -1614,12 +1716,14 @@ export default function Admin() {
     <AdminShell
       activeTab={activeTab}
       setActiveTab={setActiveTab}
+      notificationCounts={notificationCounts}
       onSignOut={() => signOut(auth)}
     >
       {activeTab === "queue" && (
         <VerificationQueue
           key={refreshKey}
           causes={causes}
+          currentUser={user}
           onRefresh={() => setRefreshKey((value) => value + 1)}
         />
       )}
