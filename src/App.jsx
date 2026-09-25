@@ -374,6 +374,12 @@ function ContactSection({ contactEmail, onSuccess }) {
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (status !== "success") return undefined;
+    const timer = window.setTimeout(() => setStatus("idle"), 4000);
+    return () => window.clearTimeout(timer);
+  }, [status]);
+
   function updateField(event) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
@@ -679,7 +685,7 @@ function PublicHome() {
           </div>
         </div>
       </footer>
-      {notice && <div className="fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#142b23] px-5 py-3 text-sm font-semibold text-white shadow-xl" role="status"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#f0bd4c] text-[#142b23]"><Check size={14} /></span>{notice}</div>}
+      {notice && <div className="fixed bottom-5 left-1/2 z-60 flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#142b23] px-5 py-3 text-sm font-semibold text-white shadow-xl" role="status"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#f0bd4c] text-[#142b23]"><Check size={14} /></span>{notice}</div>}
       {receiptCause && <ReceiptModal causes={causes} selectedCause={receiptCause} currency={currency} onClose={() => setReceiptCause(null)} onSuccess={showNotice} />}
     </main>
   );
