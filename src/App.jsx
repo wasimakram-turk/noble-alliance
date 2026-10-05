@@ -319,7 +319,17 @@ function CauseCard({ cause, currency, index = 0, onSubmitReceipt }) {
   );
 }
 
+function isAutomatedSubmission(formElement, mountedAt) {
+  return Boolean(new FormData(formElement).get("website"))
+    || performance.now() - mountedAt < 3000;
+}
+
+function HoneypotInput() {
+  return <input type="text" name="website" className="absolute -left-[10000px] top-0 h-px w-px" tabIndex={-1} autoComplete="off" aria-hidden="true" />;
+}
+
 function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
+  const [mountedAt] = useState(() => performance.now());
   const [causeId, setCauseId] = useState(selectedCause?.id || "");
   const [donorName, setDonorName] = useState("");
   const [amount, setAmount] = useState("");
@@ -333,9 +343,19 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
     return () => window.clearTimeout(timer);
   }, [status, onClose]);
 
+  function showSuccess() {
+    setError("");
+    setStatus("success");
+    onSuccess("Your receipt was submitted for review.");
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     if (status === "submitting") return;
+    if (isAutomatedSubmission(event.currentTarget, mountedAt)) {
+      showSuccess();
+      return;
+    }
     if (!donorName.trim() || !causeId || !amount || !screenshot) {
       setError("Please complete every field and provide a payment screenshot.");
       return;
@@ -367,11 +387,12 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
         status: "pending",
         submittedAt: serverTimestamp(),
       });
-      setStatus("success");
-      onSuccess("Your receipt was submitted for review.");
+      showSuccess();
     } catch (submissionError) {
       setStatus("idle");
-      setError(submissionError.message === "Receipt image is too large after compression."
+      setError(["permission-denied", "unavailable"].includes(submissionError.code)
+        ? "We could not send your message. Please try again."
+        : submissionError.message === "Receipt image is too large after compression."
         ? "This image is still too large for Firestore. Choose a smaller image."
         : "We could not submit your receipt. Please try again.");
     }
@@ -385,6 +406,7 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
           <div className="rounded-2xl bg-[#e8f5ed] p-6 text-center"><span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#39704e] text-white"><Check size={24} /></span><h3 className="mt-4 font-serif text-2xl">Your proof is with us</h3><p className="mt-2 text-sm leading-6 text-[#5f685f]">Your receipt is now pending review. We will check the transfer and match it to the Mohar Kalan project you selected.</p><button type="button" onClick={onClose} className="mt-6 rounded-full bg-[#142b23] px-5 py-3 text-sm font-bold text-white">Close</button></div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
+            <HoneypotInput />
             <p className="mb-1 text-sm text-[#5f685f]">* Required fields</p>
             <label className="block"><span className="mb-2 block text-sm font-bold uppercase tracking-[0.08em] text-[#5f685f]">Sender Name *</span><input value={donorName} onChange={(event) => setDonorName(event.target.value)} placeholder="Enter your full name" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#6c716a] focus:border-[#b27618]" required /></label>
             <label className="block"><span className="mb-2 block text-sm font-bold uppercase tracking-[0.08em] text-[#5f685f]">Project *</span><select value={causeId} onChange={(event) => setCauseId(event.target.value)} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm text-[#313d36] outline-none focus:border-[#b27618]" required><option value="">Select an active cause</option>{causes.map((cause) => <option key={cause.id} value={cause.id}>{cause.title || cause.name}</option>)}</select></label>
@@ -400,6 +422,7 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
 }
 
 function ContactSection({ contactEmail, onSuccess }) {
+  const [mountedAt] = useState(() => performance.now());
   const [form, setForm] = useState({ name: "", email: "", interest: "Volunteer in Mohar Kalan", message: "" });
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
@@ -415,8 +438,20 @@ function ContactSection({ contactEmail, onSuccess }) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
 
+  function showSuccess() {
+    setForm({ name: "", email: "", interest: "Volunteer in Mohar Kalan", message: "" });
+    setError("");
+    setStatus("success");
+    onSuccess("Thanks for reaching out. We will be in touch soon.");
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
+    if (status === "submitting") return;
+    if (isAutomatedSubmission(event.currentTarget, mountedAt)) {
+      showSuccess();
+      return;
+    }
     if (!form.name.trim() || !form.email.trim() || !form.message.trim()) {
       setError("Please complete your name, email address, and message.");
       setStatus("idle");
@@ -434,9 +469,7 @@ function ContactSection({ contactEmail, onSuccess }) {
         status: "new",
         submittedAt: serverTimestamp(),
       });
-      setForm({ name: "", email: "", interest: "Volunteer in Mohar Kalan", message: "" });
-      setStatus("success");
-      onSuccess("Thanks for reaching out. We will be in touch soon.");
+      showSuccess();
     } catch {
       setStatus("idle");
       setError("We could not send your message. Please try again.");
@@ -448,6 +481,7 @@ function ContactSection({ contactEmail, onSuccess }) {
       <div className="mx-auto grid max-w-7xl gap-12 px-6 py-20 lg:grid-cols-[0.8fr_1.2fr] lg:px-12 lg:py-28">
         <div><p className="mb-4 text-[13px] font-semibold tracking-[0.02em] text-[#5f685f]">Mohar Kalan community desk</p><MaskReveal className="font-serif text-5xl leading-none tracking-[-0.03em]">Come alongside<br />your neighbours.</MaskReveal><p className="mt-6 max-w-sm text-sm leading-7 text-[#6c716a]">Visit our community desk in Mohar Kalan or reach out directly on WhatsApp. We welcome volunteers, local referrals, and honest questions from donors in Pakistan and abroad.</p>{whatsappNumber && <a href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsapp.message)}`} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-full border border-[#39704e] px-5 py-3 text-sm font-bold text-[#31573e] transition hover:bg-[#e8f5ed]">Message us on WhatsApp <ArrowRight size={15} /></a>}{contactEmail && contactEmail !== "Not configured yet" && <a href={`mailto:${contactEmail}`} className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[#142b23] underline decoration-[#c9b47f] underline-offset-4"><Mail size={16} /> {contactEmail}</a>}</div>
         <Reveal as="form" onSubmit={handleSubmit} className="rounded-[1.75rem] bg-[#f8f6f0] p-6 shadow-[0_18px_45px_rgba(20,43,35,0.06)] sm:p-8">
+          <HoneypotInput />
           <div className="grid gap-5 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-sm font-bold uppercase tracking-[0.08em] text-[#5f685f]">Your name</span><input name="name" value={form.name} onChange={updateField} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]" required /></label><label className="block"><span className="mb-2 block text-sm font-bold uppercase tracking-[0.08em] text-[#5f685f]">Email address</span><input name="email" type="email" value={form.email} onChange={updateField} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]" required /></label></div>
           <label className="mt-5 block"><span className="mb-2 block text-sm font-bold uppercase tracking-[0.08em] text-[#5f685f]">I would like to</span><select name="interest" value={form.interest} onChange={updateField} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]"><option>Volunteer in Mohar Kalan</option><option>Refer a family needing help</option><option>Support school kits or ration bags</option><option>Ask a question</option></select></label>
           <label className="mt-5 block"><span className="mb-2 block text-sm font-bold uppercase tracking-[0.08em] text-[#5f685f]">Your message</span><textarea name="message" value={form.message} onChange={updateField} rows="4" className="w-full resize-none rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]" required /></label>

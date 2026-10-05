@@ -1,5 +1,39 @@
 # React + Vite
 
+## Firebase App Check
+
+All `VITE_` configuration variables are listed with empty values in [.env.example](./.env.example).
+Supply the Firebase configuration and `VITE_RECAPTCHA_SITE_KEY` in your local environment
+or your hosting build environment. `.env.local` is ignored by Git. Vite embeds these
+values at build time, so restart the dev server or rebuild after changing them.
+
+1. Create a score-based website key in Fraud Defense (formerly reCAPTCHA Enterprise)
+   for your public domains, including `wasimakram-turk.github.io`, and register the
+   default Firebase web app with the reCAPTCHA Enterprise provider in Firebase
+   Console > App Check using that same key. The public site key goes in
+   `VITE_RECAPTCHA_SITE_KEY`; never put secrets or service-account credentials in
+   a `VITE_` variable.
+2. With a site key configured, local development uses the App Check debug provider.
+   Register the debug token printed in the browser console under App Check > Manage
+   debug tokens. Treat this token as a secret; never commit or publish it.
+3. Validate legitimate requests in App Check metrics before enabling Cloud Firestore
+   enforcement. Enforcement applies to the whole service, including public reads and
+   admin requests, not just the two public forms. The secondary `admin-user-creation`
+   app is intentionally unchanged; test its workflows before enforcing other services.
+
+App Check initializes before default-app Auth and Firestore. It uses reCAPTCHA Enterprise
+without a challenge widget or user interaction and refreshes tokens automatically.
+Follow reCAPTCHA's branding and privacy requirements; do not hide its attribution badge
+without the required alternative disclosure.
+
+Without a site key, initialization emits one warning and continues. This permits
+development against a project without enforcement, but is not a production bypass:
+once enforcement is enabled, Firestore rejects requests without valid App Check tokens.
+Both public forms also discard submissions with a filled off-screen `website` field or
+submitted within three seconds of mounting, showing their usual success feedback without
+saving anything. These client-side checks are supplementary; enforcement is the protection
+against requests that bypass the UI.
+
 ## Firestore
 
 The Firestore collections are:
