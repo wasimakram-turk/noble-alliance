@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowRight,
   Check,
@@ -26,6 +27,8 @@ import { db } from "./firebase";
 const Admin = lazy(() => import("./Admin"));
 import Button from "./components/Button";
 import CopyButton from "./components/CopyButton";
+import Hero from "./components/Hero";
+import { AnimatedBar, CountUp, ImageReveal, MaskReveal, Reveal, ScrollProgress, ScrollWords, StepsTrack } from "./components/motion";
 import educationImage from "./assets/Education.jfif";
 import humanitarianImage from "./assets/Human.jfif";
 import communityImage from "./assets/releif.jfif";
@@ -259,7 +262,7 @@ function PaymentCard({ method, settings, copiedValue, onCopy }) {
   );
 }
 
-function CauseCard({ cause, currency, onSubmitReceipt }) {
+function CauseCard({ cause, currency, index = 0, onSubmitReceipt }) {
   const progress = progressFor(cause);
   const title = cause.title || cause.name || "Community support";
   const description = cause.description || "Your support helps this work reach more people.";
@@ -267,9 +270,10 @@ function CauseCard({ cause, currency, onSubmitReceipt }) {
   const imageUrl = cause.imageUrl || cause.image || causeFallbackImages[cause.id] || "";
 
   return (
-    <article className="interactive-card flex min-h-[20rem] flex-col overflow-hidden rounded-[1.75rem] border border-[#e5e0d5] bg-white/55 transition hover:-translate-y-1 hover:border-[#c9b47f] hover:shadow-[0_18px_45px_rgba(20,43,35,0.07)]">
+    <Reveal className="grid" delay={index * 0.1}>
+    <article className="group interactive-card flex min-h-[20rem] flex-col overflow-hidden rounded-[1.75rem] border border-[#e5e0d5] bg-white/55 transition hover:-translate-y-1 hover:border-[#c9b47f] hover:shadow-[0_18px_45px_rgba(20,43,35,0.07)]">
       <div className="relative h-50 overflow-hidden bg-[#dce8d8]">
-        {imageUrl ? <img src={imageUrl} alt="" loading="lazy" decoding="async" width="640" height="360" className="h-full w-full object-cover object-center transition duration-500 hover:scale-105" /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_30%_30%,#f0bd4c_0_8%,transparent_9%),linear-gradient(135deg,#dce8d8,#bed2b8)]"><HeartHandshake className="text-[#31573e]" size={38} strokeWidth={1.4} /></div>}
+        {imageUrl ? <ImageReveal src={imageUrl} width={640} height={360} /> : <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_30%_30%,#f0bd4c_0_8%,transparent_9%),linear-gradient(135deg,#dce8d8,#bed2b8)]"><HeartHandshake className="text-[#31573e]" size={38} strokeWidth={1.4} /></div>}
         <span className="absolute right-5 top-5 rounded-full bg-white/85 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.15em] text-[#39704e]">{status}</span>
       </div>
       <div className="flex flex-1 flex-col p-6 sm:p-5">
@@ -279,13 +283,14 @@ function CauseCard({ cause, currency, onSubmitReceipt }) {
       <h3 className="font-serif text-3xl leading-tight text-[#142b23]">{title}</h3>
       <p className="mt-3 flex-1 text-sm leading-6 text-[#6c716a]">{description}</p>
       <div className="mt-4">
-        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-[#5f685f]"><span>{currency} {formatAmount(progress.raised)} raised</span><span>{progress.percent}%</span></div>
-        <div className="h-2 overflow-hidden rounded-full bg-[#e6e4dc]"><div className="h-full rounded-full bg-[#d49c2e] transition-all" style={{ width: `${progress.percent}%` }} /></div>
+        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-[#5f685f]"><span>{currency} <CountUp value={progress.raised} format={formatAmount} /> raised</span><span><CountUp value={progress.percent} />%</span></div>
+        <div className="h-2 overflow-hidden rounded-full bg-[#e6e4dc]"><AnimatedBar percent={progress.percent} /></div>
         <div className="mt-2 flex items-center justify-between text-[11px] text-[#918d83]"><span>Progress</span><span>Goal: {currency} {formatAmount(progress.target)}</span></div>
       </div>
       <button type="button" onClick={() => onSubmitReceipt(cause)} className="mt-6 inline-flex items-center justify-center gap-2 rounded-full border border-[#142b23] px-4 py-2.5 text-sm font-bold text-[#142b23] transition hover:bg-[#142b23] hover:text-white">Submit payment receipt <ArrowRight size={15} /></button>
       </div>
     </article>
+    </Reveal>
   );
 }
 
@@ -306,6 +311,7 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (status === "submitting") return;
     if (!donorName.trim() || !causeId || !transactionId.trim() || !amount || !screenshot) {
       setError("Please complete every field and provide a payment screenshot.");
       return;
@@ -348,24 +354,24 @@ function ReceiptModal({ causes, selectedCause, currency, onClose, onSuccess }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#142b23]/55 p-0 backdrop-blur-sm sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="receipt-title">
-      <div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-t-[2rem] bg-[#f8f6f0] p-6 shadow-2xl sm:rounded-[2rem] sm:p-8">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }} className="fixed inset-0 z-50 flex items-end justify-center bg-[#142b23]/55 p-0 backdrop-blur-sm sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="receipt-title">
+      <motion.div initial={{ opacity: 0, y: 40, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 24 }} transition={{ duration: 0.4, ease: [0.22, 0.61, 0.36, 1] }} className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-t-[2rem] bg-[#f8f6f0] p-6 shadow-2xl sm:rounded-[2rem] sm:p-8">
         <div className="mb-8 flex items-start justify-between gap-5"><div><p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618]">Thank you for supporting Mohar Kalan</p><h2 id="receipt-title" className="font-serif text-4xl leading-none">Send your payment proof</h2></div><button type="button" onClick={onClose} aria-label="Close receipt form" className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d9d4c9] text-[#5f685f] transition hover:bg-[#142b23] hover:text-white"><X size={18} /></button></div>
         {status === "success" ? (
-          <div className="rounded-2xl bg-[#e8f5ed] p-6 text-center"><span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#39704e] text-white"><Check size={24} /></span><h3 className="mt-4 font-serif text-2xl">Your proof is with us</h3><p className="mt-2 text-sm leading-6 text-[#5f685f]">We will check the transfer and match it to the Mohar Kalan case you selected.</p><button type="button" onClick={onClose} className="mt-6 rounded-full bg-[#142b23] px-5 py-3 text-sm font-bold text-white">Close</button></div>
+          <div className="rounded-2xl bg-[#e8f5ed] p-6 text-center"><span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#39704e] text-white"><Check size={24} /></span><h3 className="mt-4 font-serif text-2xl">Your proof is with us</h3><p className="mt-2 text-sm leading-6 text-[#5f685f]">Your receipt is now pending review. We will check the transfer and match it to the Mohar Kalan project you selected.</p><button type="button" onClick={onClose} className="mt-6 rounded-full bg-[#142b23] px-5 py-3 text-sm font-bold text-white">Close</button></div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
             <p className="mb-1 text-xs text-[#827d72]">* Required fields</p>
             <label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Sender Name *</span><input value={donorName} onChange={(event) => setDonorName(event.target.value)} placeholder="Enter your full name" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label>
             <label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Project *</span><select value={causeId} onChange={(event) => setCauseId(event.target.value)} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm text-[#313d36] outline-none focus:border-[#b27618]" required><option value="">Select an active cause</option>{causes.map((cause) => <option key={cause.id} value={cause.id}>{cause.title || cause.name}</option>)}</select></label>
-            <div className="grid gap-5 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Transaction ID *</span><input value={transactionId} onChange={(event) => setTransactionId(event.target.value)} placeholder="Enter transaction ID" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Amount ({currency}) *</span><input type="number" min="1" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Enter amount" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label></div>
-            <div><div className="mb-2 flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Payment proof *</span></div><label className="block"><span className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#c9c1b2] bg-white px-4 py-4 text-sm text-[#6c716a] transition hover:border-[#b27618]"><Upload size={18} className="text-[#b27618]" /><span className="min-w-0 flex-1 truncate">{screenshot ? screenshot.name : "Choose an image, up to 5 MB"}</span><input type="file" accept="image/*" onChange={(event) => setScreenshot(event.target.files?.[0] || null)} className="sr-only" /></span></label></div>
+            <div className="grid gap-5 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Transaction ID *</span><input value={transactionId} onChange={(event) => setTransactionId(event.target.value)} placeholder="Enter the ID from your payment receipt" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /><span className="mt-2 block text-xs leading-5 text-[#918d83]">Use the transaction or reference number shown by your payment provider.</span></label><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Amount ({currency}) *</span><input type="number" min="1" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Enter amount sent" className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none placeholder:text-[#aaa398] focus:border-[#b27618]" required /></label></div>
+            <div><div className="mb-2 flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Payment proof *</span></div><label className="block"><span className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#c9c1b2] bg-white px-4 py-4 text-sm text-[#6c716a] transition hover:border-[#b27618]"><Upload size={18} className="text-[#b27618]" /><span className="min-w-0 flex-1 truncate">{screenshot ? screenshot.name : "Choose an image, up to 5 MB"}</span><input type="file" accept="image/*" onChange={(event) => setScreenshot(event.target.files?.[0] || null)} className="sr-only" /></span></label><span className="mt-2 block text-xs leading-5 text-[#918d83]">Upload a clear screenshot showing the payment details and transaction reference.</span></div>
             {error && <p className="rounded-xl bg-[#fff0e8] px-4 py-3 text-sm text-[#9d4f35]">{error}</p>}
             <Button type="submit" disabled={status === "submitting"} className="w-full">{status === "submitting" ? "Submitting receipt..." : "Submit receipt"}<ArrowRight size={16} /></Button>
           </form>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -415,15 +421,15 @@ function ContactSection({ contactEmail, onSuccess }) {
   return (
     <section id="contact" className="border-t border-[#e5e0d5] bg-[#eee9dd]">
       <div className="mx-auto grid max-w-7xl gap-12 px-6 py-20 lg:grid-cols-[0.8fr_1.2fr] lg:px-12 lg:py-28">
-        <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Mohar Kalan community desk</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">Come alongside<br />your neighbours.</h2><p className="mt-6 max-w-sm text-sm leading-7 text-[#6c716a]">Visit our community desk in Mohar Kalan or reach out directly on WhatsApp. We welcome volunteers, local referrals, and honest questions from donors in Pakistan and abroad.</p>{contactEmail && contactEmail !== "Not configured yet" && <a href={`mailto:${contactEmail}`} className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-[#142b23] underline decoration-[#c9b47f] underline-offset-4"><Mail size={16} /> {contactEmail}</a>}</div>
-        <form onSubmit={handleSubmit} className="rounded-[1.75rem] bg-[#f8f6f0] p-6 shadow-[0_18px_45px_rgba(20,43,35,0.06)] sm:p-8">
+        <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Mohar Kalan community desk</p><MaskReveal className="font-serif text-5xl leading-none tracking-[-0.03em]">Come alongside<br />your neighbours.</MaskReveal><p className="mt-6 max-w-sm text-sm leading-7 text-[#6c716a]">Visit our community desk in Mohar Kalan or reach out directly on WhatsApp. We welcome volunteers, local referrals, and honest questions from donors in Pakistan and abroad.</p>{contactEmail && contactEmail !== "Not configured yet" && <a href={`mailto:${contactEmail}`} className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-[#142b23] underline decoration-[#c9b47f] underline-offset-4"><Mail size={16} /> {contactEmail}</a>}</div>
+        <Reveal as="form" onSubmit={handleSubmit} className="rounded-[1.75rem] bg-[#f8f6f0] p-6 shadow-[0_18px_45px_rgba(20,43,35,0.06)] sm:p-8">
           <div className="grid gap-5 sm:grid-cols-2"><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Your name</span><input name="name" value={form.name} onChange={updateField} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]" required /></label><label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Email address</span><input name="email" type="email" value={form.email} onChange={updateField} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]" required /></label></div>
           <label className="mt-5 block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">I would like to</span><select name="interest" value={form.interest} onChange={updateField} className="w-full rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]"><option>Volunteer in Mohar Kalan</option><option>Refer a family needing help</option><option>Support school kits or ration bags</option><option>Ask a question</option></select></label>
           <label className="mt-5 block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.15em] text-[#827d72]">Your message</span><textarea name="message" value={form.message} onChange={updateField} rows="4" className="w-full resize-none rounded-xl border border-[#d9d4c9] bg-white px-4 py-3 text-sm outline-none focus:border-[#b27618]" required /></label>
           <button type="submit" disabled={status === "submitting"} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#142b23] px-6 py-3.5 text-sm font-bold text-white transition hover:bg-[#25483a] disabled:cursor-wait disabled:opacity-60">{status === "submitting" ? "Sending..." : "Send message"} <Send size={15} /></button>
           {error && <p className="mt-4 rounded-xl bg-[#fff0e8] px-4 py-3 text-sm text-[#9d4f35]" role="alert">{error}</p>}
           {status === "success" && <p className="mt-4 rounded-xl bg-[#e8f5ed] px-4 py-3 text-sm text-[#39704e]" role="status">Your message has been sent successfully.</p>}
-        </form>
+        </Reveal>
       </div>
     </section>
   );
@@ -440,6 +446,7 @@ function PublicHome() {
   const [causesError, setCausesError] = useState(false);
   const [receiptCause, setReceiptCause] = useState(null);
   const [notice, setNotice] = useState("");
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
@@ -475,6 +482,15 @@ function PublicHome() {
     }
 
     loadCauses();
+  }, []);
+
+  useEffect(() => {
+    function handleScroll() {
+      setScrolled(window.scrollY > 24);
+    }
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   useEffect(() => {
@@ -572,7 +588,8 @@ function PublicHome() {
   return (
     <main className="min-h-screen bg-[#f8f6f0] text-[#142b23]">
       <header className="sticky top-0 z-40 border-b border-[#e5e0d5] bg-[#f8f6f0]/95 shadow-[0_4px_18px_rgba(20,43,35,0.06)] backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-12">
+        <ScrollProgress />
+        <div className={`mx-auto flex max-w-7xl items-center justify-between px-6 transition-[padding] duration-300 lg:px-12 ${scrolled ? "py-3" : "py-5"}`}>
           <a href="#top" className="flex items-center gap-2.5" aria-label={`${organizationName} home`}>
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#142b23] text-[#f6c75c]">
               <HeartHandshake size={19} strokeWidth={1.8} />
@@ -593,70 +610,57 @@ function PublicHome() {
         </div>
       </header>
 
-      <section id="top" className="mx-auto grid max-w-7xl gap-12 px-6 pb-24 pt-20 lg:grid-cols-[1.15fr_0.85fr] lg:items-end lg:px-12 lg:pb-32 lg:pt-28">
-        <div className="animate-[fadeUp_700ms_ease-out_both]">
-          <p className="mb-7 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]"><span className="h-px w-8 bg-[#b27618]" /> {organizationName} · Mohar Kalan, Abbottabad</p>
-          <h1 className="max-w-3xl whitespace-pre-line font-serif text-5xl leading-[0.96] tracking-[-0.04em] text-[#142b23] sm:text-7xl lg:text-[6.7rem]">{heroHeadline}</h1>
-          <p className="mt-8 max-w-lg text-lg leading-8 text-[#5f685f]">{heroDescription}</p>
-          <div className="mt-9 flex flex-wrap items-center gap-3">
-            <Button as="a" href={primaryCtaTarget} variant="amber" size="lg" className="gap-3">{primaryCtaLabel} <ArrowRight size={17} /></Button>
-            <a href={secondaryCtaTarget} className="inline-flex items-center rounded-full border border-[#142b23] px-5 py-3.5 text-sm font-bold text-[#142b23] transition hover:bg-[#142b23] hover:text-white">{secondaryCtaLabel}</a>
-          </div>
-        </div>
-        <div className="relative mx-auto w-full max-w-md animate-[fadeUp_700ms_200ms_ease-out_both] lg:mb-2">
-          <div className="absolute -right-3 -top-3 h-24 w-24 rounded-full border border-[#d8a640]" />
-          <div className="relative overflow-hidden rounded-[2.5rem] bg-[#dce8d8] px-8 pb-8 pt-12">
-            <div className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full bg-[#bed2b8]" />
-            <div className="relative z-10">
-              <div className="mb-14 flex items-center justify-between text-[#31573e]"><span className="text-sm font-semibold">Mohar Kalan / KPK</span><span className="rounded-full bg-white/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em]">{featuredCauseStatus}</span></div>
-              <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#527156]">Current community need</p>
-              <p className="max-w-[18rem] font-serif text-4xl leading-tight text-[#1d4933]">{featuredCauseTitle}</p>
-              <p className="mt-5 max-w-sm text-sm leading-6 text-[#31573e]">{featuredCauseDescription}</p>
-              <a href={primaryCtaTarget} className="mt-8 inline-flex items-center gap-2 text-sm font-bold text-[#1d4933] underline decoration-[#8da889] underline-offset-4">{primaryCtaLabel} <ArrowRight size={15} /></a>
-              <div className="mt-10 flex items-center justify-between border-t border-[#a9c0a4] pt-4 text-xs font-semibold uppercase tracking-[0.16em] text-[#527156]"><span>Local needs</span><span>Direct care</span></div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <Hero
+        organizationName={organizationName}
+        headline={heroHeadline}
+        description={heroDescription}
+        primaryCtaLabel={primaryCtaLabel}
+        primaryCtaTarget={primaryCtaTarget}
+        secondaryCtaLabel={secondaryCtaLabel}
+        secondaryCtaTarget={secondaryCtaTarget}
+        featuredCauseTitle={featuredCauseTitle}
+        featuredCauseDescription={featuredCauseDescription}
+        featuredCauseStatus={featuredCauseStatus}
+      />
 
-      <section id="causes" className="reveal-section mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
-        <div className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Mohar Kalan and nearby villages</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">Where help is needed.</h2></div><p className="max-w-sm text-sm leading-6 text-[#6c716a]">Choose a local need, send support directly, and share the payment proof so every rupee can be checked and recorded.</p></div>
+      <section id="causes" className="mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
+        <div className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Current community needs</p><MaskReveal className="font-serif text-5xl leading-none tracking-[-0.03em]">Where support can help.</MaskReveal></div><p className="max-w-sm text-sm leading-6 text-[#6c716a]">Review the current needs, choose where you would like to help, and share your payment proof so the transfer can be checked and recorded.</p></div>
         {causesLoading && <div className="grid gap-6 md:grid-cols-3"><div className="h-80 animate-pulse rounded-[1.75rem] bg-[#ece9df]" /><div className="hidden h-80 animate-pulse rounded-[1.75rem] bg-[#ece9df] md:block" /><div className="hidden h-80 animate-pulse rounded-[1.75rem] bg-[#ece9df] md:block" /></div>}
         {causesError && <p className="rounded-2xl bg-[#fff0e8] px-5 py-4 text-sm text-[#9d4f35]">We could not load active causes right now. Please refresh and try again.</p>}
         {!causesLoading && !causesError && causes.length === 0 && <div className="rounded-[1.75rem] border border-dashed border-[#c9c1b2] px-6 py-12 text-center text-sm text-[#827d72]"><Plus className="mx-auto mb-3 text-[#b27618]" size={22} />New causes will appear here soon.</div>}
-        {!causesLoading && !causesError && causes.length > 0 && <div className="grid gap-6 md:grid-cols-3">{causes.map((cause) => <CauseCard key={cause.id} cause={cause} currency={currency} onSubmitReceipt={setReceiptCause} />)}</div>}
+        {!causesLoading && !causesError && causes.length > 0 && <div className="grid gap-6 md:grid-cols-3">{causes.map((cause, index) => <CauseCard key={cause.id} index={index} cause={cause} currency={currency} onSubmitReceipt={setReceiptCause} />)}</div>}
       </section>
 
-      <section id="mission" className="reveal-section border-y border-[#e5e0d5] bg-[#142b23] text-[#f8f6f0]">
-        <div className="mx-auto grid max-w-7xl gap-8 px-6 py-16 lg:grid-cols-[0.75fr_1.25fr] lg:px-12 lg:py-20">
-          <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f0bd4c]">Our mission</p>
-          <div><h2 className="max-w-3xl font-serif text-4xl leading-tight sm:text-5xl">{missionHeadline}</h2><p className="mt-6 max-w-xl leading-7 text-[#b9c7ba]">{missionDescription}</p></div>
+      <section id="mission" className="border-y border-[#e5e0d5] bg-[#142b23] text-[#f8f6f0]">
+        <div className="mx-auto grid max-w-7xl gap-8 px-6 py-20 lg:grid-cols-[0.75fr_1.25fr] lg:px-12 lg:py-32">
+          <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f0bd4c]">Why this work exists</p>
+          <div><MaskReveal className="max-w-3xl font-serif text-4xl leading-tight sm:text-5xl">{missionHeadline}</MaskReveal><ScrollWords text={missionDescription} className="mt-8 max-w-2xl font-serif text-2xl leading-snug text-[#f8f6f0] sm:text-3xl" /></div>
         </div>
       </section>
 
-      <section id="rooted" className="reveal-section mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
+      <section id="rooted" className="mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
         <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
-          <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">How local trust works</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">{howItWorksHeading}</h2>{howItWorksIntro && <p className="mt-5 max-w-xl text-sm leading-6 text-[#6c716a]">{howItWorksIntro}</p>}</div>
-          <div className="grid gap-5 sm:grid-cols-3">{howItWorksSteps.map((step, index) => <div key={step.id} className="rounded-2xl border border-[#e5e0d5] bg-white/55 p-5"><span className="font-serif text-3xl text-[#b27618]">{String(index + 1).padStart(2, "0")}</span><h3 className="mt-5 font-serif text-2xl">{step.title}</h3><p className="mt-3 text-sm leading-6 text-[#6c716a]">{step.description}</p></div>)}</div>
+          <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">How support is verified</p><MaskReveal className="font-serif text-5xl leading-none tracking-[-0.03em]">{howItWorksHeading}</MaskReveal>{howItWorksIntro && <p className="mt-5 max-w-xl text-sm leading-6 text-[#6c716a]">{howItWorksIntro}</p>}</div>
+          <StepsTrack steps={howItWorksSteps} />
         </div>
       </section>
 
-      <section id="transparency" className="reveal-section mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
-        <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Transparency & past work</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">{transparencyHeading}</h2></div><p className="max-w-sm text-sm leading-6 text-[#6c716a]">{transparencyDescription}</p></div>
+      <section id="transparency" className="mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
+        <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Transparency & past work</p><MaskReveal className="font-serif text-5xl leading-none tracking-[-0.03em]">{transparencyHeading}</MaskReveal></div><p className="max-w-sm text-sm leading-6 text-[#6c716a]">{transparencyDescription}</p></div>
         <div className="grid gap-4 md:grid-cols-4 md:grid-rows-2">
-          {transparencyPhotos.map((photo) => <figure key={photo.id} className={`group relative min-h-56 overflow-hidden rounded-[1.5rem] ${photo.className}`}><img src={photo.src} alt={photo.alt} loading="lazy" decoding="async" width="800" height="600" className="absolute inset-0 h-full w-full object-cover object-center transition duration-700 group-hover:scale-105" /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#142b23]/75 to-transparent px-5 pb-5 pt-16"><figcaption className="text-sm font-semibold text-white">{photo.label}</figcaption></div></figure>)}
-          <div className="flex flex-col justify-between rounded-[1.5rem] bg-[#f0bd4c] p-6 md:col-span-2"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#6f5114]">Impact to date</p><div className="mt-10 grid grid-cols-3 gap-4"><div><p className="font-serif text-3xl text-[#142b23]">{formatAmount(totalRaised)}</p><p className="mt-1 text-xs text-[#6f5114]">{currency} raised</p></div><div><p className="font-serif text-3xl text-[#142b23]">{projectCount}</p><p className="mt-1 text-xs text-[#6f5114]">Projects</p></div><div><p className="font-serif text-3xl text-[#142b23]">{volunteerCount}</p><p className="mt-1 text-xs text-[#6f5114]">Volunteers</p></div></div></div>
+          {transparencyPhotos.map((photo, index) => <figure key={photo.id} className={`group relative min-h-56 overflow-hidden rounded-[1.5rem] ${photo.className}`}><ImageReveal src={photo.src} alt={photo.alt} width={800} height={600} delay={index * 0.12} parallax /><div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#142b23]/75 to-transparent px-5 pb-5 pt-16"><figcaption className="text-sm font-semibold text-white">{photo.label}</figcaption></div></figure>)}
+          <Reveal delay={0.2} className="flex flex-col justify-between rounded-[1.5rem] bg-[#f0bd4c] p-6 md:col-span-2"><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#6f5114]">Impact to date</p><div className="mt-10 grid grid-cols-3 gap-4"><div><p className="font-serif text-3xl text-[#142b23]"><CountUp value={totalRaised} format={formatAmount} /></p><p className="mt-1 text-xs text-[#6f5114]">{currency} raised</p></div><div><p className="font-serif text-3xl text-[#142b23]"><CountUp value={projectCount} /></p><p className="mt-1 text-xs text-[#6f5114]">Projects</p></div><div><p className="font-serif text-3xl text-[#142b23]"><CountUp value={volunteerCount} /></p><p className="mt-1 text-xs text-[#6f5114]">Volunteers</p></div></div></Reveal>
         </div>
       </section>
 
-      <section id="payment" className="reveal-section mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
+      <section id="payment" className="mx-auto max-w-7xl px-6 py-20 lg:px-12 lg:py-28">
         <div className="mb-14 flex flex-col justify-between gap-6 md:flex-row md:items-end">
-          <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Direct support for Mohar Kalan</p><h2 className="font-serif text-5xl leading-none tracking-[-0.03em]">Send help straight to the ground.</h2></div>
+          <div><p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#b27618]">Ways to support a cause</p><MaskReveal className="font-serif text-5xl leading-none tracking-[-0.03em]">Support a local need directly.</MaskReveal></div>
           <div className="flex max-w-xs gap-3 text-sm leading-6 text-[#6c716a]"><ShieldCheck className="mt-1 shrink-0 text-[#b27618]" size={19} /><p>Transfer through JazzCash, EasyPaisa, or bank. Then send your proof so our local team can verify it.</p></div>
         </div>
         {settingsError && <p className="mb-8 rounded-2xl bg-[#fff0e8] px-5 py-4 text-sm text-[#9d4f35]">Payment details are temporarily unavailable. Please check back shortly.</p>}
         <div className="grid gap-10 md:grid-cols-3 md:gap-8">
-          {configuredPaymentMethods.map((method) => <PaymentCard key={method.id} method={method} settings={settings} copiedValue={copiedValue} onCopy={handleCopy} />)}
+          {configuredPaymentMethods.map((method, index) => <Reveal key={method.id} delay={index * 0.12}><PaymentCard method={method} settings={settings} copiedValue={copiedValue} onCopy={handleCopy} /></Reveal>)}
         </div>
         <p className="mt-12 text-center text-xs text-[#89857b]">Every transfer is checked against a local distribution record.</p>
       </section>
@@ -685,8 +689,8 @@ function PublicHome() {
           </div>
         </div>
       </footer>
-      {notice && <div className="fixed bottom-5 left-1/2 z-60 flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#142b23] px-5 py-3 text-sm font-semibold text-white shadow-xl" role="status"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#f0bd4c] text-[#142b23]"><Check size={14} /></span>{notice}</div>}
-      {receiptCause && <ReceiptModal causes={causes} selectedCause={receiptCause} currency={currency} onClose={() => setReceiptCause(null)} onSuccess={showNotice} />}
+      <AnimatePresence>{notice && <motion.div key="notice" initial={{ opacity: 0, y: 24, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 16, x: "-50%" }} transition={{ duration: 0.35 }} className="fixed bottom-5 left-1/2 z-60 flex items-center gap-3 rounded-full bg-[#142b23] px-5 py-3 text-sm font-semibold text-white shadow-xl" role="status"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#f0bd4c] text-[#142b23]"><Check size={14} /></span>{notice}</motion.div>}</AnimatePresence>
+      <AnimatePresence>{receiptCause && <ReceiptModal key="receipt" causes={causes} selectedCause={receiptCause} currency={currency} onClose={() => setReceiptCause(null)} onSuccess={showNotice} />}</AnimatePresence>
     </main>
   );
 }
