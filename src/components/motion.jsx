@@ -240,10 +240,10 @@ function Step({ step, index, total, progress, reduce }) {
           className="absolute left-0 top-1/2 block h-3 w-3 -translate-y-1/2 rounded-full ring-4 ring-[#f8f6f0]"
         />
       </div>
-      <div className="h-full rounded-2xl border border-[#e5e0d5] bg-white/55 p-5">
+      <div className="rounded-2xl border border-[#e5e0d5] bg-white/55 p-4">
         <motion.span
           style={reduce ? { color: "#b27618" } : { color: numberColor }}
-          className="font-serif text-3xl"
+          className="num font-serif text-3xl"
         >
           {String(index + 1).padStart(2, "0")}
         </motion.span>

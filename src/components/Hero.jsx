@@ -3,6 +3,7 @@ import { motion, useMotionValue, useReducedMotion, useScroll, useSpring, useTran
 import { ArrowDown, ArrowRight } from "lucide-react";
 
 import Button from "./Button";
+import { ImageReveal } from "./motion";
 
 const ease = [0.22, 0.61, 0.36, 1];
 
@@ -17,6 +18,7 @@ export default function Hero({
   featuredCauseTitle,
   featuredCauseDescription,
   featuredCauseStatus,
+  heroImage,
 }) {
   const heroRef = useRef(null);
   const reducedMotion = useReducedMotion();
@@ -96,7 +98,7 @@ export default function Hero({
           initial={enter}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.62, ease, delay: 0.12 }}
-          className="mb-7 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#b27618] sm:tracking-[0.24em]"
+          className="mb-7 flex items-center gap-3 text-[13px] font-semibold tracking-[0.02em] text-[#72500f]"
         >
           <motion.span
             aria-hidden="true"
@@ -199,6 +201,10 @@ export default function Hero({
             className="absolute -right-3 -top-3 h-24 w-24 rounded-full border border-[#d8a640]/75"
           />
           <div className="relative overflow-hidden rounded-[2rem] border border-white/70 bg-[#dce8d8] px-6 pb-7 pt-8 shadow-[0_24px_60px_rgba(20,43,35,0.09)] sm:rounded-[2.5rem] sm:px-8 sm:pb-8 sm:pt-10">
+            {heroImage && <div className="group relative mb-7 h-40 overflow-hidden rounded-[1.5rem] bg-[#31573e] sm:h-48">
+              <ImageReveal src={heroImage} alt="" width={900} height={540} imgClassName="h-full w-full object-cover object-center" />
+              <div aria-hidden="true" className="absolute inset-0 bg-[#142b23]/35" />
+            </div>}
             <div
               aria-hidden="true"
               className="absolute -bottom-20 -left-16 h-64 w-64 rounded-full bg-[#bed2b8]/70"
@@ -206,11 +212,11 @@ export default function Hero({
             <div className="relative z-10">
               <div className="mb-10 flex items-center justify-between gap-4 text-[#31573e] sm:mb-14">
                 <span className="text-sm font-semibold">Mohar Kalan / KPK</span>
-                <span className="rounded-full border border-white/80 bg-white/70 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em]">
+                <span className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-bold uppercase tracking-[0.08em]">
                   {featuredCauseStatus}
                 </span>
               </div>
-              <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#527156]">
+              <p className="mb-3 text-[13px] font-semibold tracking-[0.02em] text-[#31573e]">
                 Current community need
               </p>
               <p className="max-w-[18rem] font-serif text-3xl leading-tight text-[#1d4933] sm:text-4xl">
@@ -229,7 +235,7 @@ export default function Hero({
                   className="transition-transform duration-200 group-hover:translate-x-1 group-focus-visible:translate-x-1"
                 />
               </a>
-              <div className="mt-8 flex items-center justify-between border-t border-[#a9c0a4] pt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#527156] sm:mt-10 sm:text-xs sm:tracking-[0.16em]">
+              <div className="mt-8 flex items-center justify-between border-t border-[#a9c0a4] pt-4 text-xs font-semibold text-[#31573e] sm:mt-10">
                 <span>Local needs</span>
                 <span>Direct care</span>
               </div>
@@ -244,7 +250,7 @@ export default function Hero({
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease, delay: 1.05 }}
-        className="col-span-full mx-auto inline-flex flex-col items-center gap-2 rounded-md px-4 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#827d72] transition-colors hover:text-[#31573e] focus-visible:outline-offset-2"
+        className="col-span-full mx-auto inline-flex flex-col items-center gap-2 rounded-md px-4 py-2 text-xs font-semibold tracking-[0.04em] text-[#5f594f] transition-colors hover:text-[#31573e] focus-visible:outline-offset-2"
       >
         <motion.span
           aria-hidden="true"
